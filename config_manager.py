@@ -35,6 +35,8 @@ class ConfigManager:
                 "text": "Watermark",
                 "font_family": "Arial",
                 "font_size": 24,
+                "font_bold": False,
+                "font_italic": False,
                 "font_color": "#FFFFFF",
                 "opacity": 80,
                 "position": "bottom_right",

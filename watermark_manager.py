@@ -60,7 +60,8 @@ class WatermarkManager:
     def create_text_watermark(self, text: str, font_family: str, font_size: int,
                             color: str, opacity: int, rotation: float = 0,
                             shadow: bool = False, outline: bool = False,
-                            outline_color: str = '#000000', outline_width: int = 2) -> Image.Image:
+                            outline_color: str = '#000000', outline_width: int = 2,
+                            bold: bool = False, italic: bool = False) -> Image.Image:
         """
         创建文本水印
         
@@ -81,10 +82,66 @@ class WatermarkManager:
         """
         try:
             # 尝试加载字体
+            import os
+            import platform
+            
+            font = None
+            
+            # Windows字体路径映射（包括粗体、斜体变体）
+            windows_fonts = {
+                '微软雅黑': {'regular': 'msyh.ttc', 'bold': 'msyhbd.ttc'},
+                'Microsoft YaHei': {'regular': 'msyh.ttc', 'bold': 'msyhbd.ttc'},
+                '宋体': {'regular': 'simsun.ttc', 'bold': 'simsun.ttc'},
+                'SimSun': {'regular': 'simsun.ttc', 'bold': 'simsun.ttc'},
+                '黑体': {'regular': 'simhei.ttf', 'bold': 'simhei.ttf'},
+                'SimHei': {'regular': 'simhei.ttf', 'bold': 'simhei.ttf'},
+                '楷体': {'regular': 'simkai.ttf', 'bold': 'simkai.ttf'},
+                'KaiTi': {'regular': 'simkai.ttf', 'bold': 'simkai.ttf'},
+                'Arial': {'regular': 'arial.ttf', 'bold': 'arialbd.ttf', 'italic': 'ariali.ttf', 'bold_italic': 'arialbi.ttf'},
+                'Times New Roman': {'regular': 'times.ttf', 'bold': 'timesbd.ttf', 'italic': 'timesi.ttf', 'bold_italic': 'timesbi.ttf'},
+                'Courier New': {'regular': 'cour.ttf', 'bold': 'courbd.ttf', 'italic': 'couri.ttf', 'bold_italic': 'courbi.ttf'},
+                'Verdana': {'regular': 'verdana.ttf', 'bold': 'verdanab.ttf', 'italic': 'verdanai.ttf', 'bold_italic': 'verdanaz.ttf'},
+            }
+            
+            # 确定要使用的字体变体
+            font_variant = 'regular'
+            if bold and italic:
+                font_variant = 'bold_italic'
+            elif bold:
+                font_variant = 'bold'
+            elif italic:
+                font_variant = 'italic'
+            
+            # 尝试直接加载字体
             try:
                 font = ImageFont.truetype(font_family, font_size)
             except (OSError, IOError):
-                # 如果加载失败，使用默认字体
+                # 如果失败，尝试从Windows字体目录加载
+                if platform.system() == 'Windows':
+                    fonts_dir = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts')
+                    
+                    # 尝试使用字体映射
+                    if font_family in windows_fonts:
+                        font_info = windows_fonts[font_family]
+                        # 尝试加载对应的变体，如果不存在则使用regular
+                        font_file = font_info.get(font_variant) or font_info.get('regular')
+                        font_path = os.path.join(fonts_dir, font_file)
+                        try:
+                            font = ImageFont.truetype(font_path, font_size)
+                        except (OSError, IOError):
+                            pass
+                    
+                    # 如果还没有成功，尝试默认字体
+                    if font is None:
+                        for default_font in ['msyh.ttc', 'simsun.ttc', 'simhei.ttf', 'arial.ttf']:
+                            try:
+                                font = ImageFont.truetype(os.path.join(fonts_dir, default_font), font_size)
+                                break
+                            except (OSError, IOError):
+                                continue
+            
+            # 如果所有方法都失败，使用默认字体
+            if font is None:
                 font = ImageFont.load_default()
             
             # 创建临时图片来测量文本尺寸
@@ -97,7 +154,15 @@ class WatermarkManager:
             text_height = bbox[3] - bbox[1]
             
             # 添加边距和阴影/描边空间
-            margin = max(outline_width, 10) if shadow or outline else 5
+            # 使用适中的边距确保文字完整显示
+            base_margin = max(font_size // 20, 4)  # 根据字体大小动态调整边距，更紧凑
+            extra_margin = outline_width + 3 if (shadow or outline) else 0
+            margin = base_margin + extra_margin
+            
+            # 考虑旋转后的额外空间（减少旋转边距）
+            rotation_margin = int(max(text_width, text_height) * 0.1) if rotation != 0 else 0
+            margin = margin + rotation_margin
+            
             img_width = text_width + margin * 2
             img_height = text_height + margin * 2
             
@@ -311,20 +376,69 @@ class WatermarkManager:
     
     def get_available_fonts(self) -> List[str]:
         """
-        获取系统可用字体列表
+        获取系统可用字体列表（只返回可用的字体）
         
         Returns:
             List[str]: 字体名称列表
         """
+        import os
+        import platform
+        
+        available_fonts = []
+        
         try:
             import tkinter.font as tkfont
             root = tkfont.Font()
-            fonts = list(tkfont.families())
-            fonts.sort()
-            return fonts
+            all_fonts = list(tkfont.families())
+            
+            # Windows字体路径映射（用于验证）
+            windows_fonts = {
+                '微软雅黑': 'msyh.ttc',
+                'Microsoft YaHei': 'msyh.ttc',
+                '宋体': 'simsun.ttc',
+                'SimSun': 'simsun.ttc',
+                '黑体': 'simhei.ttf',
+                'SimHei': 'simhei.ttf',
+                '楷体': 'simkai.ttf',
+                'KaiTi': 'simkai.ttf',
+                'Arial': 'arial.ttf',
+                'Times New Roman': 'times.ttf',
+                'Courier New': 'cour.ttf',
+                'Verdana': 'verdana.ttf',
+            }
+            
+            if platform.system() == 'Windows':
+                fonts_dir = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts')
+                
+                # 验证字体是否真实存在
+                for font_name, font_file in windows_fonts.items():
+                    font_path = os.path.join(fonts_dir, font_file)
+                    if os.path.exists(font_path) and font_name in all_fonts:
+                        available_fonts.append(font_name)
+                
+                # 添加其他经过验证的常用字体
+                common_fonts = ['Arial', 'Times New Roman', 'Courier New', 'Verdana', 'Calibri', 'Georgia']
+                for font in common_fonts:
+                    if font not in available_fonts and font in all_fonts:
+                        # 尝试加载验证
+                        try:
+                            ImageFont.truetype(font, 12)
+                            available_fonts.append(font)
+                        except:
+                            pass
+            else:
+                # 非Windows系统，返回tkinter字体列表
+                available_fonts = all_fonts[:20]  # 限制数量
+            
+            # 确保至少有一些字体可用
+            if not available_fonts:
+                available_fonts = ['Arial', 'Helvetica', 'Courier']
+            
+            return available_fonts
+            
         except Exception:
-            # 如果无法获取系统字体，返回一些常用字体
-            return ['Arial', 'Times New Roman', 'Courier New', 'Helvetica', 'Verdana']
+            # 如果出错，返回最基本的字体
+            return ['Arial', 'Courier New']
     
     def preview_watermark(self, image: Image.Image) -> Image.Image:
         """
@@ -349,7 +463,9 @@ class WatermarkManager:
                 shadow=config.get('shadow', False),
                 outline=config.get('outline', False),
                 outline_color=config.get('outline_color', '#000000'),
-                outline_width=config.get('outline_width', 2)
+                outline_width=config.get('outline_width', 2),
+                bold=config.get('font_bold', False),
+                italic=config.get('font_italic', False)
             )
         elif config['type'] == 'image' and config['image_path']:
             watermark = self.create_image_watermark(
@@ -363,5 +479,48 @@ class WatermarkManager:
         
         if watermark:
             return self.apply_watermark(image, watermark, config['position'])
+        else:
+            return image
+    
+    def preview_watermark_with_position(self, image: Image.Image, custom_position: tuple) -> Image.Image:
+        """
+        使用自定义位置预览水印效果
+        
+        Args:
+            image: 原始图片
+            custom_position: 自定义位置 (x, y)
+            
+        Returns:
+            PIL.Image: 带水印的预览图片
+        """
+        config = self.watermark_config
+        
+        if config['type'] == 'text':
+            watermark = self.create_text_watermark(
+                text=config['text'],
+                font_family=config['font_family'],
+                font_size=config['font_size'],
+                color=config['font_color'],
+                opacity=config['opacity'],
+                rotation=config['rotation'],
+                shadow=config.get('shadow', False),
+                outline=config.get('outline', False),
+                outline_color=config.get('outline_color', '#000000'),
+                outline_width=config.get('outline_width', 2),
+                bold=config.get('font_bold', False),
+                italic=config.get('font_italic', False)
+            )
+        elif config['type'] == 'image' and config['image_path']:
+            watermark = self.create_image_watermark(
+                image_path=config['image_path'],
+                scale=config['image_scale'],
+                opacity=config['opacity'],
+                rotation=config['rotation']
+            )
+        else:
+            return image
+        
+        if watermark:
+            return self.apply_watermark(image, watermark, 'custom', custom_position)
         else:
             return image

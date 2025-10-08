@@ -11,6 +11,15 @@ from PIL import Image, ImageTk
 from typing import Optional, List, Dict, Any
 import threading
 
+# 尝试导入拖拽库
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    DRAG_DROP_AVAILABLE = True
+except ImportError:
+    DRAG_DROP_AVAILABLE = False
+    print("警告: tkinterdnd2 未安装，拖拽功能将不可用")
+    print("安装方法: pip install tkinterdnd2")
+
 from image_processor import ImageProcessor
 from watermark_manager import WatermarkManager
 from config_manager import ConfigManager
@@ -21,7 +30,12 @@ class PhotoWatermarkApp:
     
     def __init__(self):
         """初始化应用程序"""
-        self.root = tk.Tk()
+        # 根据是否有拖拽库支持创建不同的根窗口
+        if DRAG_DROP_AVAILABLE:
+            self.root = TkinterDnD.Tk()
+        else:
+            self.root = tk.Tk()
+        
         self.root.title("Photo Watermark 2 - 图片水印工具")
         self.root.geometry("1200x800")
         self.root.minsize(800, 600)
@@ -50,14 +64,18 @@ class PhotoWatermarkApp:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
+        # 创建可调整大小的PanedWindow
+        self.paned_window = ttk.PanedWindow(main_frame, orient=tk.HORIZONTAL)
+        self.paned_window.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        
         # 创建左侧面板（图片列表）
-        self.create_image_list_panel(main_frame)
+        self.create_image_list_panel(self.paned_window)
         
         # 创建中央面板（预览区域）
-        self.create_preview_panel(main_frame)
+        self.create_preview_panel(self.paned_window)
         
         # 创建右侧面板（水印设置）
-        self.create_watermark_panel(main_frame)
+        self.create_watermark_panel(self.paned_window)
         
         # 创建底部面板（操作按钮）
         self.create_control_panel(main_frame)
@@ -66,39 +84,61 @@ class PhotoWatermarkApp:
         """创建图片列表面板"""
         # 图片列表框架
         list_frame = ttk.LabelFrame(parent, text="图片列表", padding=10)
-        list_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=False, padx=(0, 5))
+        self.paned_window.add(list_frame, weight=1)
         
         # 按钮框架
         button_frame = ttk.Frame(list_frame)
         button_frame.pack(fill=tk.X, pady=(0, 10))
         
         # 导入按钮
-        ttk.Button(button_frame, text="选择图片", 
+        ttk.Button(button_frame, text="选择单张", 
+                  command=self.select_single_image).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(button_frame, text="批量选择", 
                   command=self.select_images).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="选择文件夹", 
                   command=self.select_folder).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(button_frame, text="清空列表", 
                   command=self.clear_images).pack(side=tk.LEFT)
         
-        # 图片列表
-        self.image_listbox = tk.Listbox(list_frame, width=30, height=20)
-        self.image_listbox.pack(fill=tk.BOTH, expand=True)
-        self.image_listbox.bind('<<ListboxSelect>>', self.on_image_select)
+        # 图片列表（使用Treeview显示缩略图）
+        self.image_tree = ttk.Treeview(list_frame, columns=('name',), show='tree headings', height=20)
+        self.image_tree.heading('#0', text='缩略图', anchor='w')
+        self.image_tree.heading('name', text='文件名', anchor='w')
+        self.image_tree.column('#0', width=60, minwidth=60)
+        self.image_tree.column('name', width=200, minwidth=100)
+        
+        # 设置行高以容纳缩略图
+        style = ttk.Style()
+        style.configure("Treeview", rowheight=60)  # 设置行高为60像素，适配50像素缩略图
+        
+        self.image_tree.pack(fill=tk.BOTH, expand=True)
+        self.image_tree.bind('<<TreeviewSelect>>', self.on_image_select)
         
         # 滚动条
-        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.image_listbox.yview)
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.image_tree.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.image_listbox.config(yscrollcommand=scrollbar.set)
+        self.image_tree.config(yscrollcommand=scrollbar.set)
     
     def create_preview_panel(self, parent):
         """创建预览面板"""
         # 预览框架
         preview_frame = ttk.LabelFrame(parent, text="预览", padding=10)
-        preview_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        self.paned_window.add(preview_frame, weight=2)
         
         # 预览画布
         self.preview_canvas = tk.Canvas(preview_frame, bg='white', width=400, height=400)
         self.preview_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        # 绑定鼠标事件用于拖拽水印
+        self.preview_canvas.bind('<ButtonPress-1>', self.on_watermark_drag_start)
+        self.preview_canvas.bind('<B1-Motion>', self.on_watermark_drag_motion)
+        self.preview_canvas.bind('<ButtonRelease-1>', self.on_watermark_drag_end)
+        
+        # 水印拖拽状态
+        self.watermark_dragging = False
+        self.drag_start_x = 0
+        self.drag_start_y = 0
+        self.custom_watermark_position = None  # (x, y) 相对于图片的位置
         
         # 预览控制按钮
         control_frame = ttk.Frame(preview_frame)
@@ -115,7 +155,7 @@ class PhotoWatermarkApp:
         """创建水印设置面板"""
         # 水印设置框架
         watermark_frame = ttk.LabelFrame(parent, text="水印设置", padding=10)
-        watermark_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(5, 0))
+        self.paned_window.add(watermark_frame, weight=1)
         
         # 创建滚动区域
         canvas = tk.Canvas(watermark_frame, width=300)
@@ -155,8 +195,24 @@ class PhotoWatermarkApp:
         # 模板管理
         self.create_template_settings(scrollable_frame)
         
+        # 导出设置
+        self.create_export_settings(scrollable_frame)
+        
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+        
+        # 绑定鼠标滚轮事件
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1*(event.delta/120)), "units")
+        
+        def _bind_to_mousewheel(event):
+            canvas.bind_all("<MouseWheel>", _on_mousewheel)
+        
+        def _unbind_from_mousewheel(event):
+            canvas.unbind_all("<MouseWheel>")
+        
+        canvas.bind('<Enter>', _bind_to_mousewheel)
+        canvas.bind('<Leave>', _unbind_from_mousewheel)
     
     def create_text_watermark_settings(self, parent):
         """创建文本水印设置"""
@@ -166,8 +222,9 @@ class PhotoWatermarkApp:
         # 文本内容
         ttk.Label(text_frame, text="文本内容:").pack(anchor=tk.W)
         self.text_content = tk.StringVar(value="Watermark")
-        ttk.Entry(text_frame, textvariable=self.text_content, 
-                 command=self.on_watermark_change).pack(fill=tk.X, pady=(0, 5))
+        text_entry = ttk.Entry(text_frame, textvariable=self.text_content)
+        text_entry.pack(fill=tk.X, pady=(0, 5))
+        text_entry.bind('<KeyRelease>', self.on_watermark_change)
         
         # 字体设置
         font_frame = ttk.Frame(text_frame)
@@ -180,6 +237,19 @@ class PhotoWatermarkApp:
         self.font_combo.pack(side=tk.RIGHT)
         self.font_combo.bind('<<ComboboxSelected>>', self.on_watermark_change)
         
+        # 字体样式（粗体、斜体）
+        style_frame = ttk.Frame(text_frame)
+        style_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(style_frame, text="样式:").pack(side=tk.LEFT)
+        self.font_bold = tk.BooleanVar()
+        ttk.Checkbutton(style_frame, text="粗体", variable=self.font_bold,
+                       command=self.on_watermark_change).pack(side=tk.LEFT, padx=(5, 0))
+        
+        self.font_italic = tk.BooleanVar()
+        ttk.Checkbutton(style_frame, text="斜体", variable=self.font_italic,
+                       command=self.on_watermark_change).pack(side=tk.LEFT, padx=(10, 0))
+        
         # 字体大小
         size_frame = ttk.Frame(text_frame)
         size_frame.pack(fill=tk.X, pady=(0, 5))
@@ -187,8 +257,10 @@ class PhotoWatermarkApp:
         ttk.Label(size_frame, text="字体大小:").pack(side=tk.LEFT)
         self.font_size = tk.IntVar(value=24)
         size_spinbox = ttk.Spinbox(size_frame, from_=8, to=200, width=10,
-                                  textvariable=self.font_size, command=self.on_watermark_change)
+                                  textvariable=self.font_size)
         size_spinbox.pack(side=tk.RIGHT)
+        size_spinbox.bind('<KeyRelease>', self.on_watermark_change)
+        size_spinbox.bind('<ButtonRelease-1>', self.on_watermark_change)
         
         # 字体颜色
         color_frame = ttk.Frame(text_frame)
@@ -196,7 +268,22 @@ class PhotoWatermarkApp:
         
         ttk.Label(color_frame, text="字体颜色:").pack(side=tk.LEFT)
         self.font_color = tk.StringVar(value="#FFFFFF")
-        color_button = ttk.Button(color_frame, text="选择颜色", 
+        
+        # 创建颜色显示和选择按钮
+        color_display_frame = ttk.Frame(color_frame)
+        color_display_frame.pack(side=tk.RIGHT)
+        
+        # 颜色预览框
+        self.color_preview = tk.Frame(color_display_frame, width=20, height=20, 
+                                     bg=self.font_color.get(), relief="sunken", bd=2)
+        self.color_preview.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # 颜色值标签
+        self.color_label = ttk.Label(color_display_frame, text=self.font_color.get())
+        self.color_label.pack(side=tk.LEFT, padx=(0, 5))
+        
+        # 选择颜色按钮
+        color_button = ttk.Button(color_display_frame, text="选择颜色", 
                                  command=self.choose_font_color)
         color_button.pack(side=tk.RIGHT)
         
@@ -285,16 +372,35 @@ class PhotoWatermarkApp:
             row = i // 3
             col = i % 3
             btn.grid(row=row, column=col, padx=2, pady=2, sticky=tk.W)
+        
+        # 添加自定义位置选项
+        ttk.Radiobutton(position_frame, text="自定义（拖拽）", variable=self.position,
+                       value="custom", command=self.on_position_change).grid(row=3, column=0, columnspan=3, padx=2, pady=2, sticky=tk.W)
+        
+        # 添加提示标签
+        ttk.Label(position_frame, text="💡 可在预览图上拖拽水印", 
+                 font=('', 8), foreground='gray').grid(row=4, column=0, columnspan=3, pady=(5, 0), sticky=tk.W)
     
     def create_template_settings(self, parent):
         """创建模板设置"""
         template_frame = ttk.LabelFrame(parent, text="模板管理", padding=5)
         template_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # 模板名称
-        ttk.Label(template_frame, text="模板名称:").pack(anchor=tk.W)
+        # 模板选择
+        ttk.Label(template_frame, text="选择模板:").pack(anchor=tk.W)
         self.template_name = tk.StringVar()
-        ttk.Entry(template_frame, textvariable=self.template_name).pack(fill=tk.X, pady=(0, 5))
+        self.template_combo = ttk.Combobox(template_frame, textvariable=self.template_name, 
+                                          state="readonly", width=20)
+        self.template_combo.pack(fill=tk.X, pady=(0, 5))
+        self.template_combo.bind('<<ComboboxSelected>>', self.on_template_select)
+        
+        # 不设置默认文本，留空
+        
+        # 新模板名称输入（用于保存）
+        ttk.Label(template_frame, text="新模板名称:").pack(anchor=tk.W)
+        self.new_template_name = tk.StringVar()
+        new_template_entry = ttk.Entry(template_frame, textvariable=self.new_template_name)
+        new_template_entry.pack(fill=tk.X, pady=(0, 5))
         
         # 模板按钮
         template_btn_frame = ttk.Frame(template_frame)
@@ -303,50 +409,34 @@ class PhotoWatermarkApp:
         ttk.Button(template_btn_frame, text="保存模板", 
                   command=self.save_template).pack(side=tk.LEFT, padx=(0, 5))
         ttk.Button(template_btn_frame, text="加载模板", 
-                  command=self.load_template).pack(side=tk.LEFT)
-        
-        # 模板列表
-        ttk.Label(template_frame, text="已保存的模板:").pack(anchor=tk.W)
-        self.template_listbox = tk.Listbox(template_frame, height=4)
-        self.template_listbox.pack(fill=tk.X, pady=(0, 5))
-        self.template_listbox.bind('<<ListboxSelect>>', self.on_template_select)
-        
-        # 模板操作按钮
-        template_op_frame = ttk.Frame(template_frame)
-        template_op_frame.pack(fill=tk.X)
-        
-        ttk.Button(template_op_frame, text="删除模板", 
-                  command=self.delete_template).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(template_op_frame, text="刷新列表", 
-                  command=self.refresh_template_list).pack(side=tk.LEFT)
+                  command=self.load_template).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(template_btn_frame, text="删除模板", 
+                  command=self.delete_template).pack(side=tk.LEFT)
     
-    def create_control_panel(self, parent):
-        """创建控制面板"""
-        control_frame = ttk.Frame(parent)
-        control_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        # 导出设置框架
-        export_frame = ttk.LabelFrame(control_frame, text="导出设置", padding=5)
-        export_frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 10))
+    def create_export_settings(self, parent):
+        """创建导出设置"""
+        export_frame = ttk.LabelFrame(parent, text="导出设置", padding=5)
+        export_frame.pack(fill=tk.X, pady=(0, 10))
         
         # 输出文件夹
+        ttk.Label(export_frame, text="输出文件夹:").pack(anchor=tk.W)
         output_frame = ttk.Frame(export_frame)
         output_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(output_frame, text="输出文件夹:").pack(side=tk.LEFT)
         self.output_folder = tk.StringVar()
-        ttk.Entry(output_frame, textvariable=self.output_folder).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 5))
+        self.output_folder_entry = ttk.Entry(output_frame, textvariable=self.output_folder, state="readonly")
+        self.output_folder_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(output_frame, text="选择", command=self.select_output_folder).pack(side=tk.RIGHT)
         
-        # 命名规则
+        # 导出图片命名
+        ttk.Label(export_frame, text="导出图片命名:").pack(anchor=tk.W)
         naming_frame = ttk.Frame(export_frame)
         naming_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(naming_frame, text="命名规则:").pack(side=tk.LEFT)
         self.naming_rule = tk.StringVar(value="original")
-        ttk.Radiobutton(naming_frame, text="原名", variable=self.naming_rule, value="original").pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Radiobutton(naming_frame, text="前缀", variable=self.naming_rule, value="prefix").pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Radiobutton(naming_frame, text="后缀", variable=self.naming_rule, value="suffix").pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Radiobutton(naming_frame, text="原名", variable=self.naming_rule, value="original").pack(side=tk.LEFT)
+        ttk.Radiobutton(naming_frame, text="前缀", variable=self.naming_rule, value="prefix").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Radiobutton(naming_frame, text="后缀", variable=self.naming_rule, value="suffix").pack(side=tk.LEFT, padx=(10, 0))
         
         # 前缀/后缀输入
         prefix_frame = ttk.Frame(export_frame)
@@ -360,33 +450,171 @@ class PhotoWatermarkApp:
         self.suffix = tk.StringVar(value="_watermarked")
         ttk.Entry(prefix_frame, textvariable=self.suffix, width=15).pack(side=tk.LEFT, padx=(5, 0))
         
-        # 输出格式和质量
+        # 输出格式
+        ttk.Label(export_frame, text="输出格式:").pack(anchor=tk.W)
         format_frame = ttk.Frame(export_frame)
-        format_frame.pack(fill=tk.X)
+        format_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(format_frame, text="输出格式:").pack(side=tk.LEFT)
         self.output_format = tk.StringVar(value="JPEG")
-        ttk.Radiobutton(format_frame, text="JPEG", variable=self.output_format, value="JPEG").pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Radiobutton(format_frame, text="PNG", variable=self.output_format, value="PNG").pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Radiobutton(format_frame, text="JPEG", variable=self.output_format, 
+                       value="JPEG", command=self.on_format_change).pack(side=tk.LEFT)
+        ttk.Radiobutton(format_frame, text="PNG", variable=self.output_format, 
+                       value="PNG", command=self.on_format_change).pack(side=tk.LEFT, padx=(10, 0))
         
-        ttk.Label(format_frame, text="质量:").pack(side=tk.LEFT, padx=(20, 0))
+        # 质量设置（仅JPEG格式显示）
+        self.quality_frame = ttk.Frame(export_frame)
+        self.quality_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(self.quality_frame, text="质量:").pack(side=tk.LEFT)
         self.quality = tk.IntVar(value=95)
-        ttk.Scale(format_frame, from_=1, to=100, variable=self.quality, 
-                 orient=tk.HORIZONTAL, length=100).pack(side=tk.LEFT, padx=(5, 0))
+        self.quality_scale = ttk.Scale(self.quality_frame, from_=1, to=100, variable=self.quality, 
+                                     orient=tk.HORIZONTAL, length=100)
+        self.quality_scale.pack(side=tk.LEFT, padx=(5, 0))
         
-        # 操作按钮框架
-        action_frame = ttk.Frame(control_frame)
-        action_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        self.quality_label = ttk.Label(self.quality_frame, text="95")
+        self.quality_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        ttk.Button(action_frame, text="批量导出", command=self.batch_export).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(action_frame, text="导出当前", command=self.export_current).pack(fill=tk.X, pady=(0, 5))
-        ttk.Button(action_frame, text="重置设置", command=self.reset_settings).pack(fill=tk.X)
+        # 绑定质量变化事件
+        self.quality_scale.bind('<Motion>', self.on_quality_change)
+        
+        # 初始化格式显示
+        self.on_format_change()
+        
+        # 图片尺寸调整
+        ttk.Label(export_frame, text="图片尺寸调整:").pack(anchor=tk.W)
+        size_frame = ttk.Frame(export_frame)
+        size_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        self.resize_enabled = tk.BooleanVar()
+        ttk.Checkbutton(size_frame, text="调整尺寸", variable=self.resize_enabled,
+                       command=self.on_resize_toggle).pack(side=tk.LEFT)
+        
+        self.resize_frame = ttk.Frame(export_frame)
+        self.resize_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        # 百分比调整（单独一行）
+        percentage_frame = ttk.Frame(self.resize_frame)
+        percentage_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        self.resize_method = tk.StringVar(value="percentage")
+        ttk.Radiobutton(percentage_frame, text="按百分比:", variable=self.resize_method, 
+                       value="percentage", command=self.on_resize_method_change).pack(side=tk.LEFT)
+        self.resize_percentage = tk.IntVar(value=100)
+        ttk.Spinbox(percentage_frame, from_=10, to=500, width=8,
+                   textvariable=self.resize_percentage).pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(percentage_frame, text="%").pack(side=tk.LEFT, padx=(2, 0))
+        
+        # 宽高调整（一行）
+        size_wh_frame = ttk.Frame(self.resize_frame)
+        size_wh_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Radiobutton(size_wh_frame, text="宽高:", variable=self.resize_method, 
+                       value="width_height", command=self.on_resize_method_change).pack(side=tk.LEFT)
+        
+        ttk.Label(size_wh_frame, text="宽:").pack(side=tk.LEFT, padx=(5, 0))
+        self.resize_width = tk.IntVar(value=800)
+        width_spinbox = ttk.Spinbox(size_wh_frame, from_=10, to=10000, width=8,
+                   textvariable=self.resize_width, command=self.on_width_change)
+        width_spinbox.pack(side=tk.LEFT, padx=(2, 0))
+        width_spinbox.bind('<Return>', lambda e: self.on_width_change())
+        width_spinbox.bind('<KeyRelease>', lambda e: self.on_width_change())
+        
+        ttk.Label(size_wh_frame, text="高:").pack(side=tk.LEFT, padx=(10, 0))
+        self.resize_height = tk.IntVar(value=600)
+        height_spinbox = ttk.Spinbox(size_wh_frame, from_=10, to=10000, width=8,
+                   textvariable=self.resize_height, command=self.on_height_change)
+        height_spinbox.pack(side=tk.LEFT, padx=(2, 0))
+        height_spinbox.bind('<Return>', lambda e: self.on_height_change())
+        height_spinbox.bind('<KeyRelease>', lambda e: self.on_height_change())
+        
+        # 保持宽高比选项
+        self.keep_aspect_ratio = tk.BooleanVar(value=True)
+        ttk.Checkbutton(size_wh_frame, text="保持比例", variable=self.keep_aspect_ratio).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # 初始化尺寸调整显示
+        self.on_resize_toggle()
+        
+        # 导出按钮
+        export_btn_frame = ttk.Frame(export_frame)
+        export_btn_frame.pack(fill=tk.X, pady=(5, 0))
+        
+        ttk.Button(export_btn_frame, text="批量导出", command=self.batch_export).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(export_btn_frame, text="导出当前", command=self.export_current).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(export_btn_frame, text="重置设置", command=self.reset_settings).pack(side=tk.LEFT)
+    
+    def create_control_panel(self, parent):
+        """创建控制面板"""
+        # 现在控制面板只包含简单的状态信息
+        control_frame = ttk.Frame(parent)
+        control_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # 状态标签
+        self.status_label = ttk.Label(control_frame, text="就绪")
+        self.status_label.pack(side=tk.LEFT)
     
     def setup_drag_drop(self):
         """设置拖拽功能"""
-        # Windows下的拖拽功能需要额外的库支持
-        # 这里先禁用，用户可以通过按钮选择文件
-        pass
+        if not DRAG_DROP_AVAILABLE:
+            print("拖拽功能不可用，请使用按钮导入图片")
+            return
+        
+        try:
+            # 为整个窗口注册拖拽目标
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self.on_drop)
+            
+            # 为图片列表区域注册拖拽
+            self.image_tree.drop_target_register(DND_FILES)
+            self.image_tree.dnd_bind('<<Drop>>', self.on_drop)
+            
+            # 为预览区域注册拖拽
+            self.preview_canvas.drop_target_register(DND_FILES)
+            self.preview_canvas.dnd_bind('<<Drop>>', self.on_drop)
+            
+            print("✓ 拖拽功能已启用")
+            self.status_label.config(text="就绪 - 支持拖拽导入")
+        except Exception as e:
+            print(f"拖拽功能设置失败: {e}")
+    
+    def on_drop(self, event):
+        """处理拖拽放下事件"""
+        try:
+            # 获取拖拽的文件路径
+            files = event.data
+            
+            # 处理不同格式的路径数据
+            if isinstance(files, str):
+                # 处理Windows路径格式
+                if files.startswith('{') and files.endswith('}'):
+                    # 多个文件用{}包裹
+                    files = files[1:-1].split('} {')
+                else:
+                    # 单个文件
+                    files = [files]
+            elif isinstance(files, tuple):
+                files = list(files)
+            else:
+                files = [files]
+            
+            # 清理路径（移除可能的引号）
+            clean_files = []
+            for f in files:
+                f = f.strip().strip('"').strip("'")
+                if f:
+                    clean_files.append(f)
+            
+            # 过滤出图片文件
+            image_files = [f for f in clean_files if self.image_processor.is_supported_image(f)]
+            
+            if image_files:
+                self.add_images(image_files)
+                self.status_label.config(text=f"已通过拖拽导入 {len(image_files)} 张图片")
+            else:
+                messagebox.showwarning("导入失败", "拖拽的文件中没有支持的图片格式")
+                
+        except Exception as e:
+            print(f"拖拽导入失败: {e}")
+            messagebox.showerror("错误", f"拖拽导入失败: {str(e)}")
     
     def load_last_settings(self):
         """加载上次的设置"""
@@ -418,7 +646,16 @@ class PhotoWatermarkApp:
         self.text_content.set(config.get('text', 'Watermark'))
         self.font_family.set(config.get('font_family', 'Arial'))
         self.font_size.set(config.get('font_size', 24))
-        self.font_color.set(config.get('font_color', '#FFFFFF'))
+        
+        # 更新颜色设置
+        color_value = config.get('font_color', '#FFFFFF')
+        self.font_color.set(color_value)
+        # 更新颜色显示（如果组件已创建）
+        if hasattr(self, 'color_preview'):
+            self.color_preview.config(bg=color_value)
+        if hasattr(self, 'color_label'):
+            self.color_label.config(text=color_value)
+        
         self.opacity.set(config.get('opacity', 80))
         self.rotation.set(config.get('rotation', 0))
         self.position.set(config.get('position', 'bottom_right'))
@@ -426,14 +663,28 @@ class PhotoWatermarkApp:
         self.image_scale.set(config.get('image_scale', 1.0))
         self.shadow_var.set(config.get('shadow', False))
         self.outline_var.set(config.get('outline', False))
+        
+        # 更新字体样式
+        if hasattr(self, 'font_bold'):
+            self.font_bold.set(config.get('font_bold', False))
+        if hasattr(self, 'font_italic'):
+            self.font_italic.set(config.get('font_italic', False))
+        
+        # 恢复自定义位置
+        if 'custom_position' in config:
+            self.custom_watermark_position = tuple(config['custom_position'])
+        else:
+            self.custom_watermark_position = None
     
     def get_current_config(self):
         """获取当前配置"""
-        return {
+        config = {
             'type': self.watermark_type.get(),
             'text': self.text_content.get(),
             'font_family': self.font_family.get(),
             'font_size': self.font_size.get(),
+            'font_bold': self.font_bold.get(),
+            'font_italic': self.font_italic.get(),
             'font_color': self.font_color.get(),
             'opacity': self.opacity.get(),
             'rotation': self.rotation.get(),
@@ -445,9 +696,32 @@ class PhotoWatermarkApp:
             'outline_color': '#000000',
             'outline_width': 2
         }
+        
+        # 如果是自定义位置，保存坐标
+        if self.position.get() == 'custom' and self.custom_watermark_position:
+            config['custom_position'] = self.custom_watermark_position
+        
+        return config
+    
+    def select_single_image(self):
+        """选择单张图片文件"""
+        file_path = filedialog.askopenfilename(
+            parent=self.root,
+            title="选择图片文件",
+            filetypes=[
+                ("图片文件", "*.jpg *.jpeg *.png *.bmp *.tiff *.tif"),
+                ("JPEG文件", "*.jpg *.jpeg"),
+                ("PNG文件", "*.png"),
+                ("BMP文件", "*.bmp"),
+                ("TIFF文件", "*.tiff *.tif"),
+                ("所有文件", "*.*")
+            ]
+        )
+        if file_path:
+            self.add_images([file_path])
     
     def select_images(self):
-        """选择图片文件"""
+        """批量选择图片文件"""
         file_paths = self.image_processor.select_images(self.root)
         if file_paths:
             self.add_images(file_paths)
@@ -487,21 +761,44 @@ class PhotoWatermarkApp:
     
     def refresh_image_list(self):
         """刷新图片列表"""
-        self.image_listbox.delete(0, tk.END)
+        # 清空现有项目
+        for item in self.image_tree.get_children():
+            self.image_tree.delete(item)
+        
         images = self.image_processor.get_image_list()
+        
         for i, image_info in enumerate(images):
-            self.image_listbox.insert(tk.END, f"{i+1}. {image_info['filename']}")
+            # 创建缩略图
+            thumbnail = image_info['thumbnail']
+            if thumbnail:
+                # 调整缩略图大小
+                thumbnail = thumbnail.resize((50, 50), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(thumbnail)
+                
+                # 插入到树形控件
+                item_id = self.image_tree.insert('', 'end', 
+                                               image=photo, 
+                                               text=f"{i+1}",
+                                               values=(image_info['filename'],))
+                
+                # 保存图片引用防止被垃圾回收
+                if not hasattr(self, 'thumbnails'):
+                    self.thumbnails = []
+                self.thumbnails.append(photo)
         
         # 如果有图片，选中第一张
         if images:
-            self.image_listbox.selection_set(0)
+            first_item = self.image_tree.get_children()[0]
+            self.image_tree.selection_set(first_item)
             self.on_image_select(None)
     
     def on_image_select(self, event):
         """图片选择事件"""
-        selection = self.image_listbox.curselection()
+        selection = self.image_tree.selection()
         if selection:
-            index = selection[0]
+            # 获取选中项目的索引
+            item = selection[0]
+            index = self.image_tree.index(item)
             self.image_processor.set_current_image(index)
             self.selected_image_index = index
             self.refresh_preview()
@@ -510,25 +807,32 @@ class PhotoWatermarkApp:
         """上一张图片"""
         if self.selected_image_index > 0:
             self.selected_image_index -= 1
-            self.image_listbox.selection_clear(0, tk.END)
-            self.image_listbox.selection_set(self.selected_image_index)
-            self.image_processor.set_current_image(self.selected_image_index)
-            self.refresh_preview()
+            # 更新树形控件选择
+            children = self.image_tree.get_children()
+            if self.selected_image_index < len(children):
+                self.image_tree.selection_set(children[self.selected_image_index])
+                self.image_processor.set_current_image(self.selected_image_index)
+                self.refresh_preview()
     
     def next_image(self):
         """下一张图片"""
         images = self.image_processor.get_image_list()
         if self.selected_image_index < len(images) - 1:
             self.selected_image_index += 1
-            self.image_listbox.selection_clear(0, tk.END)
-            self.image_listbox.selection_set(self.selected_image_index)
-            self.image_processor.set_current_image(self.selected_image_index)
-            self.refresh_preview()
+            # 更新树形控件选择
+            children = self.image_tree.get_children()
+            if self.selected_image_index < len(children):
+                self.image_tree.selection_set(children[self.selected_image_index])
+                self.image_processor.set_current_image(self.selected_image_index)
+                self.refresh_preview()
     
     def clear_images(self):
         """清空图片列表"""
         if messagebox.askyesno("确认", "确定要清空所有图片吗？"):
             self.image_processor.clear_images()
+            # 清空缩略图引用
+            if hasattr(self, 'thumbnails'):
+                self.thumbnails.clear()
             self.refresh_image_list()
             self.preview_canvas.delete("all")
     
@@ -540,8 +844,15 @@ class PhotoWatermarkApp:
             config = self.get_current_config()
             self.watermark_manager.update_config(config)
             
-            # 生成预览图片
-            preview = self.watermark_manager.preview_watermark(current_image)
+            # 生成预览图片，使用自定义位置
+            if self.custom_watermark_position and self.position.get() == 'custom':
+                preview = self.watermark_manager.preview_watermark_with_position(
+                    current_image, 
+                    self.custom_watermark_position
+                )
+            else:
+                preview = self.watermark_manager.preview_watermark(current_image)
+            
             self.display_preview(preview)
     
     def display_preview(self, image):
@@ -585,13 +896,203 @@ class PhotoWatermarkApp:
     
     def on_position_change(self):
         """位置改变"""
+        # 如果切换到预设位置，清除自定义位置
+        self.custom_watermark_position = None
         self.on_watermark_change()
+    
+    def on_watermark_drag_start(self, event):
+        """水印拖拽开始"""
+        # 检查是否点击在水印区域
+        if not self.image_processor.get_current_image():
+            return
+        
+        self.watermark_dragging = True
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
+        
+        # 切换到自定义位置模式
+        self.position.set('custom')
+    
+    def on_watermark_drag_motion(self, event):
+        """水印拖拽移动"""
+        if not self.watermark_dragging:
+            return
+        
+        # 计算鼠标移动距离
+        dx = event.x - self.drag_start_x
+        dy = event.y - self.drag_start_y
+        
+        # 更新拖拽起始点
+        self.drag_start_x = event.x
+        self.drag_start_y = event.y
+        
+        # 计算水印在原图上的位置
+        current_image = self.image_processor.get_current_image()
+        if current_image:
+            # 获取画布和图片的尺寸信息
+            canvas_width = self.preview_canvas.winfo_width()
+            canvas_height = self.preview_canvas.winfo_height()
+            
+            img_width, img_height = current_image.size
+            
+            # 计算缩放比例
+            scale_x = canvas_width / img_width if img_width > 0 else 1
+            scale_y = canvas_height / img_height if img_height > 0 else 1
+            scale = min(scale_x, scale_y, 1.0)
+            
+            # 计算显示的图片尺寸
+            display_width = int(img_width * scale)
+            display_height = int(img_height * scale)
+            
+            # 计算图片在画布上的偏移
+            offset_x = (canvas_width - display_width) // 2
+            offset_y = (canvas_height - display_height) // 2
+            
+            # 将画布坐标转换为原图坐标
+            if self.custom_watermark_position is None:
+                # 首次拖拽，从当前位置开始
+                image_x = int((event.x - offset_x) / scale) if scale > 0 else event.x
+                image_y = int((event.y - offset_y) / scale) if scale > 0 else event.y
+                self.custom_watermark_position = (image_x, image_y)
+            else:
+                # 继续拖拽，更新位置
+                image_dx = int(dx / scale) if scale > 0 else dx
+                image_dy = int(dy / scale) if scale > 0 else dy
+                old_x, old_y = self.custom_watermark_position
+                new_x = old_x + image_dx
+                new_y = old_y + image_dy
+                
+                # 限制在图片范围内
+                new_x = max(0, min(new_x, img_width))
+                new_y = max(0, min(new_y, img_height))
+                
+                self.custom_watermark_position = (new_x, new_y)
+            
+            # 刷新预览
+            self.refresh_preview()
+    
+    def on_watermark_drag_end(self, event):
+        """水印拖拽结束"""
+        self.watermark_dragging = False
+    
+    def on_format_change(self):
+        """输出格式改变"""
+        if self.output_format.get() == "JPEG":
+            # 显示质量设置
+            for widget in self.quality_frame.winfo_children():
+                widget.pack()
+        else:
+            # 隐藏质量设置
+            for widget in self.quality_frame.winfo_children():
+                widget.pack_forget()
+    
+    def on_quality_change(self, event=None):
+        """质量变化"""
+        quality_value = int(self.quality.get())
+        self.quality_label.config(text=str(quality_value))
+    
+    def on_resize_toggle(self):
+        """尺寸调整开关"""
+        if self.resize_enabled.get():
+            # 显示尺寸调整选项
+            for widget in self.resize_frame.winfo_children():
+                widget.pack()
+            # 更新为当前图片尺寸
+            self.update_resize_values()
+        else:
+            # 隐藏尺寸调整选项
+            for widget in self.resize_frame.winfo_children():
+                widget.pack_forget()
+    
+    def on_resize_method_change(self):
+        """调整方式改变"""
+        pass  # 方法改变时无需特殊处理
+    
+    def update_resize_values(self):
+        """更新尺寸值为当前图片尺寸"""
+        current_image = self.image_processor.get_current_image()
+        if current_image:
+            width, height = current_image.size
+            self.resize_width.set(width)
+            self.resize_height.set(height)
+            self.original_aspect_ratio = width / height if height > 0 else 1
+    
+    def on_width_change(self):
+        """宽度改变时，如果保持比例则自动调整高度"""
+        if self.keep_aspect_ratio.get() and hasattr(self, 'original_aspect_ratio'):
+            try:
+                new_width = self.resize_width.get()
+                if new_width > 0:
+                    new_height = int(new_width / self.original_aspect_ratio)
+                    # 使用标志位防止递归
+                    if not hasattr(self, '_updating_height') or not self._updating_height:
+                        self._updating_height = True
+                        self.resize_height.set(new_height)
+                        self._updating_height = False
+            except tk.TclError:
+                pass  # 输入无效时忽略
+    
+    def on_height_change(self):
+        """高度改变时，如果保持比例则自动调整宽度"""
+        if self.keep_aspect_ratio.get() and hasattr(self, 'original_aspect_ratio'):
+            try:
+                new_height = self.resize_height.get()
+                if new_height > 0:
+                    new_width = int(new_height * self.original_aspect_ratio)
+                    # 使用标志位防止递归
+                    if not hasattr(self, '_updating_width') or not self._updating_width:
+                        self._updating_width = True
+                        self.resize_width.set(new_width)
+                        self._updating_width = False
+            except tk.TclError:
+                pass  # 输入无效时忽略
     
     def choose_font_color(self):
         """选择字体颜色"""
-        color = colorchooser.askcolor(color=self.font_color.get(), title="选择字体颜色")
-        if color[1]:  # color[1] 是十六进制颜色值
-            self.font_color.set(color[1])
+        current_color = self.font_color.get()
+        
+        # 调用颜色选择器
+        color = colorchooser.askcolor(color=current_color, title="选择字体颜色")
+        
+        # 打印调试信息
+        print(f"颜色选择器返回: {color}")
+        
+        # 处理返回的颜色值
+        if color is None or (color[0] is None and color[1] is None):
+            # 用户点击了取消
+            return
+        
+        hex_color = None
+        
+        # 优先使用十六进制值（如果存在）
+        if color[1]:
+            hex_color = color[1].upper()
+            print(f"使用十六进制值: {hex_color}")
+        # 否则使用RGB值转换
+        elif color[0]:
+            rgb_color = color[0]
+            # 确保RGB值在0-255范围内并转换为整数
+            r = max(0, min(255, int(round(rgb_color[0]))))
+            g = max(0, min(255, int(round(rgb_color[1]))))
+            b = max(0, min(255, int(round(rgb_color[2]))))
+            hex_color = "#{:02X}{:02X}{:02X}".format(r, g, b)
+            print(f"RGB转换: ({r}, {g}, {b}) -> {hex_color}")
+        
+        # 更新颜色设置
+        if hex_color:
+            self.font_color.set(hex_color)
+            # 更新颜色预览框和标签
+            try:
+                self.color_preview.config(bg=hex_color)
+                self.color_label.config(text=hex_color)
+                print(f"颜色已更新为: {hex_color}")
+            except tk.TclError as e:
+                print(f"颜色设置错误: {e}")
+                # 如果颜色格式错误，尝试修正
+                if hex_color.startswith('#'):
+                    self.color_preview.config(bg=hex_color)
+                    self.color_label.config(text=hex_color)
+            
             self.on_watermark_change()
     
     def select_watermark_image(self):
@@ -611,27 +1112,26 @@ class PhotoWatermarkApp:
     
     def save_template(self):
         """保存模板"""
-        template_name = self.template_name.get().strip()
+        template_name = self.new_template_name.get().strip()
         if not template_name:
-            messagebox.showerror("错误", "请输入模板名称")
+            messagebox.showerror("错误", "请输入新模板名称")
             return
         
         config = self.get_current_config()
         if self.config_manager.save_template(template_name, config):
             messagebox.showinfo("成功", f"模板 '{template_name}' 保存成功")
             self.refresh_template_list()
-            self.template_name.set("")
+            self.new_template_name.set("")
         else:
             messagebox.showerror("错误", "保存模板失败")
     
     def load_template(self):
         """加载模板"""
-        selection = self.template_listbox.curselection()
-        if not selection:
+        template_name = self.template_name.get().strip()
+        if not template_name:
             messagebox.showerror("错误", "请选择要加载的模板")
             return
         
-        template_name = self.template_listbox.get(selection[0])
         template = self.config_manager.load_template(template_name)
         if template:
             self.update_ui_from_config(template)
@@ -642,32 +1142,44 @@ class PhotoWatermarkApp:
     
     def delete_template(self):
         """删除模板"""
-        selection = self.template_listbox.curselection()
-        if not selection:
+        template_name = self.template_name.get().strip()
+        if not template_name:
             messagebox.showerror("错误", "请选择要删除的模板")
             return
         
-        template_name = self.template_listbox.get(selection[0])
         if messagebox.askyesno("确认", f"确定要删除模板 '{template_name}' 吗？"):
             if self.config_manager.delete_template(template_name):
                 messagebox.showinfo("成功", f"模板 '{template_name}' 删除成功")
                 self.refresh_template_list()
+                self.template_name.set("")  # 清空选择
             else:
                 messagebox.showerror("错误", "删除模板失败")
     
     def refresh_template_list(self):
         """刷新模板列表"""
-        self.template_listbox.delete(0, tk.END)
         templates = self.config_manager.list_templates()
-        for template_name in templates:
-            self.template_listbox.insert(tk.END, template_name)
+        if templates:
+            self.template_combo['values'] = templates
+        else:
+            # 没有模板时显示提示
+            self.template_combo['values'] = ['暂无模板']
+            self.template_combo.set('')  # 清空显示
     
     def on_template_select(self, event):
         """模板选择事件"""
-        selection = self.template_listbox.curselection()
-        if selection:
-            template_name = self.template_listbox.get(selection[0])
-            self.template_name.set(template_name)
+        # 当从下拉框选择模板时，自动加载
+        template_name = self.template_name.get().strip()
+        
+        # 如果选择的是"暂无模板"提示，则忽略
+        if template_name == '暂无模板':
+            self.template_name.set('')  # 清空选择
+            return
+        
+        if template_name:
+            template = self.config_manager.load_template(template_name)
+            if template:
+                self.update_ui_from_config(template)
+                self.on_watermark_change()
     
     def select_output_folder(self):
         """选择输出文件夹"""
@@ -687,6 +1199,11 @@ class PhotoWatermarkApp:
             messagebox.showerror("错误", "请选择输出文件夹")
             return
         
+        # 检查是否导出到原文件夹
+        if self._is_same_folder(output_folder):
+            if not messagebox.askyesno("警告", "输出文件夹与原图片文件夹相同，可能会覆盖原图。是否继续？"):
+                return
+        
         # 在新线程中执行导出
         def export_thread():
             try:
@@ -703,8 +1220,18 @@ class PhotoWatermarkApp:
                 
                 for i, image_info in enumerate(images):
                     try:
-                        # 应用水印
-                        watermarked = self.watermark_manager.preview_watermark(image_info['image'])
+                        # 应用水印（使用自定义位置）
+                        if self.custom_watermark_position and self.position.get() == 'custom':
+                            watermarked = self.watermark_manager.preview_watermark_with_position(
+                                image_info['image'], 
+                                self.custom_watermark_position
+                            )
+                        else:
+                            watermarked = self.watermark_manager.preview_watermark(image_info['image'])
+                        
+                        # 调整图片尺寸
+                        if self.resize_enabled.get():
+                            watermarked = self._resize_image(watermarked)
                         
                         # 生成输出文件名
                         original_name = Path(image_info['file_path']).stem
@@ -797,13 +1324,32 @@ class PhotoWatermarkApp:
             messagebox.showerror("错误", "请选择输出文件夹")
             return
         
+        # 检查是否导出到原文件夹
+        current_info = self.image_processor.get_current_image_info()
+        if current_info:
+            output_path = Path(output_folder).resolve()
+            image_path = Path(current_info['file_path']).parent.resolve()
+            if output_path == image_path:
+                if not messagebox.askyesno("警告", "输出文件夹与原图片文件夹相同，可能会覆盖原图。是否继续？"):
+                    return
+        
         try:
             # 更新水印配置
             config = self.get_current_config()
             self.watermark_manager.update_config(config)
             
-            # 应用水印
-            watermarked = self.watermark_manager.preview_watermark(current_image)
+            # 应用水印（使用自定义位置）
+            if self.custom_watermark_position and self.position.get() == 'custom':
+                watermarked = self.watermark_manager.preview_watermark_with_position(
+                    current_image, 
+                    self.custom_watermark_position
+                )
+            else:
+                watermarked = self.watermark_manager.preview_watermark(current_image)
+            
+            # 调整图片尺寸
+            if self.resize_enabled.get():
+                watermarked = self._resize_image(watermarked)
             
             # 生成输出文件名
             current_info = self.image_processor.get_current_image_info()
@@ -844,6 +1390,36 @@ class PhotoWatermarkApp:
             self.update_ui_from_config(default_config)
             self.on_watermark_change()
             messagebox.showinfo("成功", "设置已重置")
+    
+    def _is_same_folder(self, output_folder):
+        """检查输出文件夹是否与原图片文件夹相同"""
+        images = self.image_processor.get_image_list()
+        if not images:
+            return False
+        
+        output_path = Path(output_folder).resolve()
+        for image_info in images:
+            image_path = Path(image_info['file_path']).parent.resolve()
+            if output_path == image_path:
+                return True
+        return False
+    
+    def _resize_image(self, image):
+        """调整图片尺寸"""
+        if not self.resize_enabled.get():
+            return image
+        
+        method = self.resize_method.get()
+        
+        if method == "percentage":
+            percentage = self.resize_percentage.get()
+            new_size = (int(image.width * percentage / 100), int(image.height * percentage / 100))
+        elif method == "width_height":
+            new_size = (self.resize_width.get(), self.resize_height.get())
+        else:
+            return image
+        
+        return image.resize(new_size, Image.Resampling.LANCZOS)
     
     def on_closing(self):
         """窗口关闭事件"""

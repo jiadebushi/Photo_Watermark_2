@@ -133,7 +133,9 @@ class ImageProcessor:
         Returns:
             PIL.Image: 缩略图
         """
-        return image.copy().thumbnail(size, Image.Resampling.LANCZOS)
+        thumbnail = image.copy()
+        thumbnail.thumbnail(size, Image.Resampling.LANCZOS)
+        return thumbnail
     
     def get_current_image(self) -> Optional[Image.Image]:
         """获取当前选中的图片"""

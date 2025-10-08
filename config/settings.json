@@ -1,0 +1,27 @@
+{
+  "last_watermark_template": null,
+  "last_output_folder": "D:/.25fall/ai4coding",
+  "last_input_folder": "",
+  "default_watermark": {
+    "type": "text",
+    "text": "水印",
+    "font_family": "楷体",
+    "font_size": 180,
+    "font_bold": false,
+    "font_italic": false,
+    "font_color": "#265359",
+    "opacity": 96,
+    "rotation": 0,
+    "position": "custom",
+    "image_path": "",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "custom_position": [
+      3068,
+      945
+    ]
+  }
+}

@@ -1,0 +1,84 @@
+{
+  "英文模板1": {
+    "type": "text",
+    "text": "watermark",
+    "font_family": "Times New Roman",
+    "font_size": 180,
+    "font_color": "#000000",
+    "opacity": 82,
+    "rotation": 22,
+    "position": "custom",
+    "image_path": "",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "custom_position": [
+      1080,
+      1293
+    ]
+  },
+  "中文模板": {
+    "type": "text",
+    "text": "水印",
+    "font_family": "楷体",
+    "font_size": 180,
+    "font_color": "#265359",
+    "opacity": 96,
+    "rotation": 0,
+    "position": "custom",
+    "image_path": "",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "custom_position": [
+      3068,
+      945
+    ]
+  },
+  "小图片模板英文": {
+    "type": "text",
+    "text": "watermark",
+    "font_family": "Times New Roman",
+    "font_size": 90,
+    "font_color": "#ffffff",
+    "opacity": 38,
+    "rotation": 22,
+    "position": "custom",
+    "image_path": "",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "custom_position": [
+      142,
+      92
+    ]
+  },
+  "英文模板-粗斜": {
+    "type": "text",
+    "text": "watermark",
+    "font_family": "Arial",
+    "font_size": 90,
+    "font_bold": true,
+    "font_italic": true,
+    "font_color": "#000000",
+    "opacity": 38,
+    "rotation": 22,
+    "position": "custom",
+    "image_path": "",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "custom_position": [
+      0,
+      420
+    ]
+  }
+}
