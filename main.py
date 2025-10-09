@@ -49,6 +49,7 @@ class PhotoWatermarkApp:
         self.current_image = None
         self.preview_image = None
         self.selected_image_index = 0
+        self.watermark_type = tk.StringVar(value="text")
         
         # 创建界面
         self.create_widgets()
@@ -157,9 +158,27 @@ class PhotoWatermarkApp:
         watermark_frame = ttk.LabelFrame(parent, text="水印设置", padding=10)
         self.paned_window.add(watermark_frame, weight=1)
         
+        # 创建Notebook（Tab页）
+        self.notebook = ttk.Notebook(watermark_frame)
+        self.notebook.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建文本水印Tab
+        self.create_text_watermark_tab()
+        
+        # 创建图片水印Tab
+        self.create_image_watermark_tab()
+        
+        # 绑定Tab切换事件
+        self.notebook.bind('<<NotebookTabChanged>>', self.on_tab_changed)
+    
+    def create_text_watermark_tab(self):
+        """创建文本水印Tab页"""
         # 创建滚动区域
-        canvas = tk.Canvas(watermark_frame, width=300)
-        scrollbar = ttk.Scrollbar(watermark_frame, orient="vertical", command=canvas.yview)
+        text_tab = ttk.Frame(self.notebook)
+        self.notebook.add(text_tab, text="文本水印")
+        
+        canvas = tk.Canvas(text_tab, width=300)
+        scrollbar = ttk.Scrollbar(text_tab, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
         scrollable_frame.bind(
@@ -170,21 +189,8 @@ class PhotoWatermarkApp:
         canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
         canvas.configure(yscrollcommand=scrollbar.set)
         
-        # 水印类型选择
-        type_frame = ttk.LabelFrame(scrollable_frame, text="水印类型", padding=5)
-        type_frame.pack(fill=tk.X, pady=(0, 10))
-        
-        self.watermark_type = tk.StringVar(value="text")
-        ttk.Radiobutton(type_frame, text="文本水印", variable=self.watermark_type, 
-                       value="text", command=self.on_watermark_type_change).pack(anchor=tk.W)
-        ttk.Radiobutton(type_frame, text="图片水印", variable=self.watermark_type, 
-                       value="image", command=self.on_watermark_type_change).pack(anchor=tk.W)
-        
         # 文本水印设置
         self.create_text_watermark_settings(scrollable_frame)
-        
-        # 图片水印设置
-        self.create_image_watermark_settings(scrollable_frame)
         
         # 通用设置
         self.create_common_settings(scrollable_frame)
@@ -193,7 +199,7 @@ class PhotoWatermarkApp:
         self.create_position_settings(scrollable_frame)
         
         # 模板管理
-        self.create_template_settings(scrollable_frame)
+        self.create_template_settings(scrollable_frame, "text")
         
         # 导出设置
         self.create_export_settings(scrollable_frame)
@@ -201,7 +207,50 @@ class PhotoWatermarkApp:
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
         
-        # 绑定鼠标滚轮事件
+        # 绑定鼠标滚轮
+        self._bind_mousewheel(canvas)
+    
+    def create_image_watermark_tab(self):
+        """创建图片水印Tab页"""
+        # 创建滚动区域
+        image_tab = ttk.Frame(self.notebook)
+        self.notebook.add(image_tab, text="图片水印")
+        
+        canvas = tk.Canvas(image_tab, width=300)
+        scrollbar = ttk.Scrollbar(image_tab, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 图片水印设置
+        self.create_image_watermark_settings(scrollable_frame)
+        
+        # 通用设置（图片水印也需要）
+        self.create_common_settings_for_image(scrollable_frame)
+        
+        # 位置设置（图片水印也需要）
+        self.create_position_settings_for_image(scrollable_frame)
+        
+        # 模板管理（图片水印独立）
+        self.create_template_settings(scrollable_frame, "image")
+        
+        # 导出设置（共用）
+        self.create_export_settings_for_image(scrollable_frame)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 绑定鼠标滚轮
+        self._bind_mousewheel(canvas)
+    
+    def _bind_mousewheel(self, canvas):
+        """绑定鼠标滚轮事件"""
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1*(event.delta/120)), "units")
         
@@ -213,6 +262,15 @@ class PhotoWatermarkApp:
         
         canvas.bind('<Enter>', _bind_to_mousewheel)
         canvas.bind('<Leave>', _unbind_from_mousewheel)
+    
+    def on_tab_changed(self, event):
+        """Tab切换事件"""
+        current_tab = self.notebook.index(self.notebook.select())
+        if current_tab == 0:
+            self.watermark_type.set("text")
+        else:
+            self.watermark_type.set("image")
+        self.on_watermark_change()
     
     def create_text_watermark_settings(self, parent):
         """创建文本水印设置"""
@@ -321,9 +379,14 @@ class PhotoWatermarkApp:
         ttk.Label(scale_frame, text="缩放比例:").pack(side=tk.LEFT)
         self.image_scale = tk.DoubleVar(value=1.0)
         scale_spinbox = ttk.Spinbox(scale_frame, from_=0.1, to=5.0, increment=0.1,
-                                   width=10, textvariable=self.image_scale, 
-                                   command=self.on_watermark_change)
+                                   width=10, textvariable=self.image_scale)
         scale_spinbox.pack(side=tk.RIGHT)
+        scale_spinbox.bind('<KeyRelease>', self.on_watermark_change)
+        scale_spinbox.bind('<ButtonRelease-1>', self.on_watermark_change)
+        
+        # 添加说明标签
+        ttk.Label(image_frame, text="💡 支持PNG透明图片", 
+                 font=('', 8), foreground='gray').pack(anchor=tk.W, pady=(5, 0))
     
     def create_common_settings(self, parent):
         """创建通用设置"""
@@ -381,37 +444,119 @@ class PhotoWatermarkApp:
         ttk.Label(position_frame, text="💡 可在预览图上拖拽水印", 
                  font=('', 8), foreground='gray').grid(row=4, column=0, columnspan=3, pady=(5, 0), sticky=tk.W)
     
-    def create_template_settings(self, parent):
+    def create_common_settings_for_image(self, parent):
+        """创建图片水印的通用设置"""
+        common_frame = ttk.LabelFrame(parent, text="通用设置", padding=5)
+        common_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 透明度（复用文本水印的opacity变量）
+        opacity_frame = ttk.Frame(common_frame)
+        opacity_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(opacity_frame, text="透明度:").pack(side=tk.LEFT)
+        opacity_scale = ttk.Scale(opacity_frame, from_=0, to=100, 
+                                 variable=self.opacity, orient=tk.HORIZONTAL,
+                                 command=self.on_watermark_change)
+        opacity_scale.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
+        
+        # 旋转角度（复用rotation变量）
+        rotation_frame = ttk.Frame(common_frame)
+        rotation_frame.pack(fill=tk.X, pady=(0, 5))
+        
+        ttk.Label(rotation_frame, text="旋转角度:").pack(side=tk.LEFT)
+        rotation_scale = ttk.Scale(rotation_frame, from_=-180, to=180, 
+                                  variable=self.rotation, orient=tk.HORIZONTAL,
+                                  command=self.on_watermark_change)
+        rotation_scale.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 0))
+    
+    def create_position_settings_for_image(self, parent):
+        """创建图片水印的位置设置"""
+        position_frame = ttk.LabelFrame(parent, text="位置设置", padding=5)
+        position_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        # 九宫格位置选择（复用position变量）
+        positions = [
+            ("左上", "top_left"), ("上中", "top_center"), ("右上", "top_right"),
+            ("左中", "center_left"), ("中心", "center"), ("右中", "center_right"),
+            ("左下", "bottom_left"), ("下中", "bottom_center"), ("右下", "bottom_right")
+        ]
+        
+        for i, (label, value) in enumerate(positions):
+            btn = ttk.Radiobutton(position_frame, text=label, variable=self.position,
+                                 value=value, command=self.on_position_change)
+            row = i // 3
+            col = i % 3
+            btn.grid(row=row, column=col, padx=2, pady=2, sticky=tk.W)
+        
+        # 添加自定义位置选项
+        ttk.Radiobutton(position_frame, text="自定义（拖拽）", variable=self.position,
+                       value="custom", command=self.on_position_change).grid(row=3, column=0, columnspan=3, padx=2, pady=2, sticky=tk.W)
+        
+        # 添加提示标签
+        ttk.Label(position_frame, text="💡 可在预览图上拖拽水印", 
+                 font=('', 8), foreground='gray').grid(row=4, column=0, columnspan=3, pady=(5, 0), sticky=tk.W)
+    
+    def create_export_settings_for_image(self, parent):
+        """创建图片水印的导出设置"""
+        # 直接调用导出设置创建函数（共用同一组变量）
+        self.create_export_settings(parent)
+    
+    def create_template_settings(self, parent, watermark_type="text"):
         """创建模板设置"""
         template_frame = ttk.LabelFrame(parent, text="模板管理", padding=5)
         template_frame.pack(fill=tk.X, pady=(0, 10))
         
-        # 模板选择
-        ttk.Label(template_frame, text="选择模板:").pack(anchor=tk.W)
-        self.template_name = tk.StringVar()
-        self.template_combo = ttk.Combobox(template_frame, textvariable=self.template_name, 
-                                          state="readonly", width=20)
-        self.template_combo.pack(fill=tk.X, pady=(0, 5))
-        self.template_combo.bind('<<ComboboxSelected>>', self.on_template_select)
-        
-        # 不设置默认文本，留空
-        
-        # 新模板名称输入（用于保存）
-        ttk.Label(template_frame, text="新模板名称:").pack(anchor=tk.W)
-        self.new_template_name = tk.StringVar()
-        new_template_entry = ttk.Entry(template_frame, textvariable=self.new_template_name)
-        new_template_entry.pack(fill=tk.X, pady=(0, 5))
-        
-        # 模板按钮
-        template_btn_frame = ttk.Frame(template_frame)
-        template_btn_frame.pack(fill=tk.X, pady=(0, 5))
-        
-        ttk.Button(template_btn_frame, text="保存模板", 
-                  command=self.save_template).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(template_btn_frame, text="加载模板", 
-                  command=self.load_template).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(template_btn_frame, text="删除模板", 
-                  command=self.delete_template).pack(side=tk.LEFT)
+        # 根据类型使用不同的变量
+        if watermark_type == "text":
+            # 文本水印模板
+            ttk.Label(template_frame, text="选择模板:").pack(anchor=tk.W)
+            self.template_name_text = tk.StringVar()
+            self.template_combo_text = ttk.Combobox(template_frame, textvariable=self.template_name_text, 
+                                              state="readonly", width=20)
+            self.template_combo_text.pack(fill=tk.X, pady=(0, 5))
+            self.template_combo_text.bind('<<ComboboxSelected>>', lambda e: self.on_template_select("text"))
+            
+            # 新模板名称输入
+            ttk.Label(template_frame, text="新模板名称:").pack(anchor=tk.W)
+            self.new_template_name_text = tk.StringVar()
+            new_template_entry = ttk.Entry(template_frame, textvariable=self.new_template_name_text)
+            new_template_entry.pack(fill=tk.X, pady=(0, 5))
+            
+            # 模板按钮
+            template_btn_frame = ttk.Frame(template_frame)
+            template_btn_frame.pack(fill=tk.X, pady=(0, 5))
+            
+            ttk.Button(template_btn_frame, text="保存模板", 
+                      command=lambda: self.save_template("text")).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Button(template_btn_frame, text="加载模板", 
+                      command=lambda: self.load_template("text")).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Button(template_btn_frame, text="删除模板", 
+                      command=lambda: self.delete_template("text")).pack(side=tk.LEFT)
+        else:
+            # 图片水印模板
+            ttk.Label(template_frame, text="选择模板:").pack(anchor=tk.W)
+            self.template_name_image = tk.StringVar()
+            self.template_combo_image = ttk.Combobox(template_frame, textvariable=self.template_name_image, 
+                                                state="readonly", width=20)
+            self.template_combo_image.pack(fill=tk.X, pady=(0, 5))
+            self.template_combo_image.bind('<<ComboboxSelected>>', lambda e: self.on_template_select("image"))
+            
+            # 新模板名称输入
+            ttk.Label(template_frame, text="新模板名称:").pack(anchor=tk.W)
+            self.new_template_name_image = tk.StringVar()
+            new_template_entry = ttk.Entry(template_frame, textvariable=self.new_template_name_image)
+            new_template_entry.pack(fill=tk.X, pady=(0, 5))
+            
+            # 模板按钮
+            template_btn_frame = ttk.Frame(template_frame)
+            template_btn_frame.pack(fill=tk.X, pady=(0, 5))
+            
+            ttk.Button(template_btn_frame, text="保存模板", 
+                      command=lambda: self.save_template("image")).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Button(template_btn_frame, text="加载模板", 
+                      command=lambda: self.load_template("image")).pack(side=tk.LEFT, padx=(0, 5))
+            ttk.Button(template_btn_frame, text="删除模板", 
+                      command=lambda: self.delete_template("image")).pack(side=tk.LEFT)
     
     def create_export_settings(self, parent):
         """创建导出设置"""
@@ -627,8 +772,11 @@ class PhotoWatermarkApp:
         if last_output:
             self.output_folder.set(last_output)
         
-        # 刷新模板列表
-        self.refresh_template_list()
+        # 刷新模板列表（文本和图片）
+        if hasattr(self, 'template_combo_text'):
+            self.refresh_template_list("text")
+        if hasattr(self, 'template_combo_image'):
+            self.refresh_template_list("image")
         
         # 加载系统字体
         self.load_system_fonts()
@@ -636,9 +784,17 @@ class PhotoWatermarkApp:
     def load_system_fonts(self):
         """加载系统字体"""
         fonts = self.watermark_manager.get_available_fonts()
+        
+        # 临时解绑事件，避免在加载字体列表时触发刷新
+        self.font_combo.unbind('<<ComboboxSelected>>')
+        
+        # 更新字体列表
         self.font_combo['values'] = fonts
         if fonts and self.font_family.get() not in fonts:
             self.font_family.set(fonts[0])
+        
+        # 重新绑定事件
+        self.font_combo.bind('<<ComboboxSelected>>', self.on_watermark_change)
     
     def update_ui_from_config(self, config):
         """从配置更新UI"""
@@ -1054,9 +1210,6 @@ class PhotoWatermarkApp:
         # 调用颜色选择器
         color = colorchooser.askcolor(color=current_color, title="选择字体颜色")
         
-        # 打印调试信息
-        print(f"颜色选择器返回: {color}")
-        
         # 处理返回的颜色值
         if color is None or (color[0] is None and color[1] is None):
             # 用户点击了取消
@@ -1067,7 +1220,6 @@ class PhotoWatermarkApp:
         # 优先使用十六进制值（如果存在）
         if color[1]:
             hex_color = color[1].upper()
-            print(f"使用十六进制值: {hex_color}")
         # 否则使用RGB值转换
         elif color[0]:
             rgb_color = color[0]
@@ -1076,7 +1228,6 @@ class PhotoWatermarkApp:
             g = max(0, min(255, int(round(rgb_color[1]))))
             b = max(0, min(255, int(round(rgb_color[2]))))
             hex_color = "#{:02X}{:02X}{:02X}".format(r, g, b)
-            print(f"RGB转换: ({r}, {g}, {b}) -> {hex_color}")
         
         # 更新颜色设置
         if hex_color:
@@ -1085,9 +1236,7 @@ class PhotoWatermarkApp:
             try:
                 self.color_preview.config(bg=hex_color)
                 self.color_label.config(text=hex_color)
-                print(f"颜色已更新为: {hex_color}")
-            except tk.TclError as e:
-                print(f"颜色设置错误: {e}")
+            except tk.TclError:
                 # 如果颜色格式错误，尝试修正
                 if hex_color.startswith('#'):
                     self.color_preview.config(bg=hex_color)
@@ -1110,29 +1259,51 @@ class PhotoWatermarkApp:
             self.image_path.set(file_path)
             self.on_watermark_change()
     
-    def save_template(self):
+    def save_template(self, watermark_type="text"):
         """保存模板"""
-        template_name = self.new_template_name.get().strip()
+        if watermark_type == "text":
+            template_name = self.new_template_name_text.get().strip()
+            prefix = "文本_"
+        else:
+            template_name = self.new_template_name_image.get().strip()
+            prefix = "图片_"
+        
         if not template_name:
             messagebox.showerror("错误", "请输入新模板名称")
             return
         
+        # 添加类型前缀
+        full_template_name = prefix + template_name
+        
         config = self.get_current_config()
-        if self.config_manager.save_template(template_name, config):
+        config['_watermark_type'] = watermark_type  # 标记模板类型
+        
+        if self.config_manager.save_template(full_template_name, config):
             messagebox.showinfo("成功", f"模板 '{template_name}' 保存成功")
-            self.refresh_template_list()
-            self.new_template_name.set("")
+            self.refresh_template_list(watermark_type)
+            if watermark_type == "text":
+                self.new_template_name_text.set("")
+            else:
+                self.new_template_name_image.set("")
         else:
             messagebox.showerror("错误", "保存模板失败")
     
-    def load_template(self):
+    def load_template(self, watermark_type="text"):
         """加载模板"""
-        template_name = self.template_name.get().strip()
-        if not template_name:
-            messagebox.showerror("错误", "请选择要加载的模板")
+        if watermark_type == "text":
+            template_name = self.template_name_text.get().strip()
+            prefix = "文本_"
+        else:
+            template_name = self.template_name_image.get().strip()
+            prefix = "图片_"
+        
+        if template_name == '暂无模板' or not template_name:
             return
         
-        template = self.config_manager.load_template(template_name)
+        # 如果模板名没有前缀，添加前缀
+        full_name = template_name if template_name.startswith(prefix) else prefix + template_name
+        
+        template = self.config_manager.load_template(full_name)
         if template:
             self.update_ui_from_config(template)
             self.on_watermark_change()
@@ -1140,46 +1311,65 @@ class PhotoWatermarkApp:
         else:
             messagebox.showerror("错误", "加载模板失败")
     
-    def delete_template(self):
+    def delete_template(self, watermark_type="text"):
         """删除模板"""
-        template_name = self.template_name.get().strip()
-        if not template_name:
+        if watermark_type == "text":
+            template_name = self.template_name_text.get().strip()
+            prefix = "文本_"
+        else:
+            template_name = self.template_name_image.get().strip()
+            prefix = "图片_"
+        
+        if not template_name or template_name == '暂无模板':
             messagebox.showerror("错误", "请选择要删除的模板")
             return
         
+        # 如果模板名没有前缀，添加前缀
+        full_name = template_name if template_name.startswith(prefix) else prefix + template_name
+        
         if messagebox.askyesno("确认", f"确定要删除模板 '{template_name}' 吗？"):
-            if self.config_manager.delete_template(template_name):
+            if self.config_manager.delete_template(full_name):
                 messagebox.showinfo("成功", f"模板 '{template_name}' 删除成功")
-                self.refresh_template_list()
-                self.template_name.set("")  # 清空选择
+                self.refresh_template_list(watermark_type)
+                if watermark_type == "text":
+                    self.template_name_text.set("")
+                else:
+                    self.template_name_image.set("")
             else:
                 messagebox.showerror("错误", "删除模板失败")
     
-    def refresh_template_list(self):
+    def refresh_template_list(self, watermark_type="text"):
         """刷新模板列表"""
-        templates = self.config_manager.list_templates()
-        if templates:
-            self.template_combo['values'] = templates
+        prefix = "文本_" if watermark_type == "text" else "图片_"
+        all_templates = self.config_manager.list_templates()
+        
+        # 过滤出对应类型的模板
+        templates = [t[len(prefix):] for t in all_templates if t.startswith(prefix)]
+        
+        if watermark_type == "text":
+            combo = self.template_combo_text
         else:
-            # 没有模板时显示提示
-            self.template_combo['values'] = ['暂无模板']
-            self.template_combo.set('')  # 清空显示
+            combo = self.template_combo_image
+        
+        if templates:
+            combo['values'] = templates
+        else:
+            combo['values'] = ['暂无模板']
+            combo.set('')
     
-    def on_template_select(self, event):
+    def on_template_select(self, watermark_type="text"):
         """模板选择事件"""
-        # 当从下拉框选择模板时，自动加载
-        template_name = self.template_name.get().strip()
+        if watermark_type == "text":
+            template_name = self.template_name_text.get().strip()
+        else:
+            template_name = self.template_name_image.get().strip()
         
         # 如果选择的是"暂无模板"提示，则忽略
-        if template_name == '暂无模板':
-            self.template_name.set('')  # 清空选择
+        if template_name == '暂无模板' or not template_name:
             return
         
-        if template_name:
-            template = self.config_manager.load_template(template_name)
-            if template:
-                self.update_ui_from_config(template)
-                self.on_watermark_change()
+        # 自动加载模板
+        self.load_template(watermark_type)
     
     def select_output_folder(self):
         """选择输出文件夹"""

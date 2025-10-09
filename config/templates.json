@@ -80,5 +80,47 @@
       0,
       420
     ]
+  },
+  "文本_小图片英文模板": {
+    "type": "text",
+    "text": "watermark",
+    "font_family": "Times New Roman",
+    "font_size": 90,
+    "font_bold": false,
+    "font_italic": false,
+    "font_color": "#ffffff",
+    "opacity": 38,
+    "rotation": 28,
+    "position": "custom",
+    "image_path": "D:/.25fall/ai4coding/logo.png",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "custom_position": [
+      278,
+      108
+    ],
+    "_watermark_type": "text"
+  },
+  "图片_画不出来模板": {
+    "type": "image",
+    "text": "watermark",
+    "font_family": "Times New Roman",
+    "font_size": 90,
+    "font_bold": false,
+    "font_italic": false,
+    "font_color": "#ffffff",
+    "opacity": 100,
+    "rotation": 28,
+    "position": "top_left",
+    "image_path": "D:/.25fall/ai4coding/logo.png",
+    "image_scale": 1.0,
+    "shadow": false,
+    "outline": true,
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "_watermark_type": "image"
   }
 }

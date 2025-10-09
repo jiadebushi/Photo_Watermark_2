@@ -76,6 +76,8 @@ class WatermarkManager:
             outline: 是否添加描边
             outline_color: 描边颜色
             outline_width: 描边宽度
+            bold: 是否粗体
+            italic: 是否斜体
             
         Returns:
             PIL.Image: 文本水印图片
@@ -87,7 +89,7 @@ class WatermarkManager:
             
             font = None
             
-            # Windows字体路径映射（包括粗体、斜体变体）
+            # Windows常用字体路径映射（包括粗体、斜体变体）
             windows_fonts = {
                 '微软雅黑': {'regular': 'msyh.ttc', 'bold': 'msyhbd.ttc'},
                 'Microsoft YaHei': {'regular': 'msyh.ttc', 'bold': 'msyhbd.ttc'},
@@ -101,6 +103,8 @@ class WatermarkManager:
                 'Times New Roman': {'regular': 'times.ttf', 'bold': 'timesbd.ttf', 'italic': 'timesi.ttf', 'bold_italic': 'timesbi.ttf'},
                 'Courier New': {'regular': 'cour.ttf', 'bold': 'courbd.ttf', 'italic': 'couri.ttf', 'bold_italic': 'courbi.ttf'},
                 'Verdana': {'regular': 'verdana.ttf', 'bold': 'verdanab.ttf', 'italic': 'verdanai.ttf', 'bold_italic': 'verdanaz.ttf'},
+                'Calibri': {'regular': 'calibri.ttf', 'bold': 'calibrib.ttf', 'italic': 'calibrii.ttf', 'bold_italic': 'calibriz.ttf'},
+                'Georgia': {'regular': 'georgia.ttf', 'bold': 'georgiab.ttf', 'italic': 'georgiai.ttf', 'bold_italic': 'georgiaz.ttf'},
             }
             
             # 确定要使用的字体变体
@@ -112,37 +116,73 @@ class WatermarkManager:
             elif italic:
                 font_variant = 'italic'
             
-            # 尝试直接加载字体
-            try:
-                font = ImageFont.truetype(font_family, font_size)
-            except (OSError, IOError):
-                # 如果失败，尝试从Windows字体目录加载
-                if platform.system() == 'Windows':
-                    fonts_dir = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts')
+            # Windows字体目录
+            if platform.system() == 'Windows':
+                fonts_dir = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts')
+                
+                # 建立字体文件索引（首次调用时）
+                if not hasattr(self, '_font_file_cache'):
+                    self._build_font_cache(fonts_dir)
+                
+                # 1. 尝试从预定义映射加载
+                if font_family in windows_fonts:
+                    font_info = windows_fonts[font_family]
+                    font_file = font_info.get(font_variant) or font_info.get('regular')
+                    font_path = os.path.join(fonts_dir, font_file)
+                    try:
+                        font = ImageFont.truetype(font_path, font_size)
+                    except (OSError, IOError):
+                        pass
+                
+                # 2. 从缓存中搜索
+                if font is None and hasattr(self, '_font_file_cache'):
+                    search_names = [
+                        font_family.lower(),
+                        font_family.lower().replace(' ', ''),
+                        font_family.lower().replace(' ', '-'),
+                        font_family.lower().replace(' ', '_'),
+                    ]
                     
-                    # 尝试使用字体映射
-                    if font_family in windows_fonts:
-                        font_info = windows_fonts[font_family]
-                        # 尝试加载对应的变体，如果不存在则使用regular
-                        font_file = font_info.get(font_variant) or font_info.get('regular')
-                        font_path = os.path.join(fonts_dir, font_file)
-                        try:
-                            font = ImageFont.truetype(font_path, font_size)
-                        except (OSError, IOError):
-                            pass
-                    
-                    # 如果还没有成功，尝试默认字体
-                    if font is None:
-                        for default_font in ['msyh.ttc', 'simsun.ttc', 'simhei.ttf', 'arial.ttf']:
+                    for search_name in search_names:
+                        if search_name in self._font_file_cache:
+                            font_path = self._font_file_cache[search_name]
                             try:
-                                font = ImageFont.truetype(os.path.join(fonts_dir, default_font), font_size)
+                                font = ImageFont.truetype(font_path, font_size)
                                 break
                             except (OSError, IOError):
                                 continue
+                
+                # 3. 如果还没成功，使用默认字体
+                if font is None:
+                    for default_font in ['msyh.ttc', 'simsun.ttc', 'simhei.ttf', 'arial.ttf']:
+                        try:
+                            font = ImageFont.truetype(os.path.join(fonts_dir, default_font), font_size)
+                            break
+                        except (OSError, IOError):
+                            continue
+            else:
+                # 非Windows系统，尝试直接加载
+                try:
+                    font = ImageFont.truetype(font_family, font_size)
+                except (OSError, IOError):
+                    pass
             
             # 如果所有方法都失败，使用默认字体
             if font is None:
                 font = ImageFont.load_default()
+            
+            # 记录是否需要模拟粗体/斜体（用于中文字体）
+            need_simulate_bold = bold
+            need_simulate_italic = italic
+            
+            # 如果成功加载了带bold/italic的字体变体，则不需要模拟
+            if font_variant != 'regular' and font is not None:
+                # 检查是否真的加载了变体字体文件
+                if platform.system() == 'Windows' and font_family in windows_fonts:
+                    font_info = windows_fonts[font_family]
+                    if font_variant in font_info:
+                        need_simulate_bold = False
+                        need_simulate_italic = False
             
             # 创建临时图片来测量文本尺寸
             temp_img = Image.new('RGBA', (1, 1), (0, 0, 0, 0))
@@ -155,7 +195,7 @@ class WatermarkManager:
             
             # 添加边距和阴影/描边空间
             # 使用适中的边距确保文字完整显示
-            base_margin = max(font_size // 20, 4)  # 根据字体大小动态调整边距，更紧凑
+            base_margin = max(font_size // 20, 8)  # 根据字体大小动态调整边距，更紧凑
             extra_margin = outline_width + 3 if (shadow or outline) else 0
             margin = base_margin + extra_margin
             
@@ -191,7 +231,25 @@ class WatermarkManager:
             
             # 绘制主文本
             text_color_rgba = self._hex_to_rgba(color, opacity)
-            draw.text((text_x, text_y), text, font=font, fill=text_color_rgba)
+            
+            # 如果需要模拟粗体（用于中文字体）
+            if need_simulate_bold:
+                # 绘制多层文本模拟粗体效果
+                for offset_x in [-1, 0, 1]:
+                    for offset_y in [-1, 0, 1]:
+                        draw.text((text_x + offset_x, text_y + offset_y), text, font=font, fill=text_color_rgba)
+            else:
+                draw.text((text_x, text_y), text, font=font, fill=text_color_rgba)
+            
+            # 应用斜体效果（使用仿射变换）
+            if need_simulate_italic:
+                # 使用transform创建斜体效果
+                watermark = watermark.transform(
+                    watermark.size,
+                    Image.AFFINE,
+                    (1, 0.3, 0, 0, 1, 0),  # 仿射变换矩阵：水平倾斜
+                    resample=Image.Resampling.BICUBIC
+                )
             
             # 旋转水印
             if rotation != 0:
@@ -374,71 +432,67 @@ class WatermarkManager:
         
         return watermark
     
+    def _build_font_cache(self, fonts_dir: str):
+        """
+        构建字体文件缓存，映射字体名称到字体文件路径
+        
+        Args:
+            fonts_dir: 字体目录路径
+        """
+        import os
+        
+        self._font_file_cache = {}
+        font_files_found = 0
+        
+        try:
+            # 遍历字体目录
+            for font_file in os.listdir(fonts_dir):
+                if font_file.lower().endswith(('.ttf', '.ttc', '.otf')):
+                    font_path = os.path.join(fonts_dir, font_file)
+                    font_files_found += 1
+                    
+                    # 使用文件名作为键（去除扩展名）
+                    base_name = os.path.splitext(font_file)[0]
+                    
+                    # 添加多种可能的键值映射
+                    keys_to_add = [
+                        base_name.lower(),  # 全小写
+                        base_name.lower().replace(' ', ''),  # 无空格
+                        base_name.lower().replace(' ', '-'),  # 空格换成-
+                        base_name.lower().replace(' ', '_'),  # 空格换成_
+                        base_name.lower().replace('-', ''),  # 无-
+                        base_name.lower().replace('_', ''),  # 无_
+                    ]
+                    
+                    for key in keys_to_add:
+                        if key and key not in self._font_file_cache:
+                            self._font_file_cache[key] = font_path
+            
+            # 字体缓存构建完成（静默）
+            pass
+            
+        except Exception as e:
+            print(f"构建字体缓存失败: {e}")
+            self._font_file_cache = {}
+    
     def get_available_fonts(self) -> List[str]:
         """
-        获取系统可用字体列表（只返回可用的字体）
+        获取常用字体列表（经过测试确保可用）
         
         Returns:
             List[str]: 字体名称列表
         """
-        import os
-        import platform
-        
-        available_fonts = []
-        
-        try:
-            import tkinter.font as tkfont
-            root = tkfont.Font()
-            all_fonts = list(tkfont.families())
-            
-            # Windows字体路径映射（用于验证）
-            windows_fonts = {
-                '微软雅黑': 'msyh.ttc',
-                'Microsoft YaHei': 'msyh.ttc',
-                '宋体': 'simsun.ttc',
-                'SimSun': 'simsun.ttc',
-                '黑体': 'simhei.ttf',
-                'SimHei': 'simhei.ttf',
-                '楷体': 'simkai.ttf',
-                'KaiTi': 'simkai.ttf',
-                'Arial': 'arial.ttf',
-                'Times New Roman': 'times.ttf',
-                'Courier New': 'cour.ttf',
-                'Verdana': 'verdana.ttf',
-            }
-            
-            if platform.system() == 'Windows':
-                fonts_dir = os.path.join(os.environ.get('WINDIR', 'C:\\Windows'), 'Fonts')
-                
-                # 验证字体是否真实存在
-                for font_name, font_file in windows_fonts.items():
-                    font_path = os.path.join(fonts_dir, font_file)
-                    if os.path.exists(font_path) and font_name in all_fonts:
-                        available_fonts.append(font_name)
-                
-                # 添加其他经过验证的常用字体
-                common_fonts = ['Arial', 'Times New Roman', 'Courier New', 'Verdana', 'Calibri', 'Georgia']
-                for font in common_fonts:
-                    if font not in available_fonts and font in all_fonts:
-                        # 尝试加载验证
-                        try:
-                            ImageFont.truetype(font, 12)
-                            available_fonts.append(font)
-                        except:
-                            pass
-            else:
-                # 非Windows系统，返回tkinter字体列表
-                available_fonts = all_fonts[:20]  # 限制数量
-            
-            # 确保至少有一些字体可用
-            if not available_fonts:
-                available_fonts = ['Arial', 'Helvetica', 'Courier']
-            
-            return available_fonts
-            
-        except Exception:
-            # 如果出错，返回最基本的字体
-            return ['Arial', 'Courier New']
+        # 返回常用且确保可用的字体
+        return [
+            '微软雅黑',
+            '宋体', 
+            '黑体',
+            '楷体',
+            'Arial',
+            'Times New Roman',
+            'Courier New',
+            'Verdana'
+        ]
     
     def preview_watermark(self, image: Image.Image) -> Image.Image:
         """

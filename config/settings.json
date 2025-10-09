@@ -4,24 +4,24 @@
   "last_input_folder": "",
   "default_watermark": {
     "type": "text",
-    "text": "水印",
-    "font_family": "楷体",
-    "font_size": 180,
+    "text": "watermark",
+    "font_family": "Times New Roman",
+    "font_size": 90,
     "font_bold": false,
     "font_italic": false,
-    "font_color": "#265359",
-    "opacity": 96,
-    "rotation": 0,
+    "font_color": "#ffffff",
+    "opacity": 38,
+    "rotation": 28,
     "position": "custom",
-    "image_path": "",
+    "image_path": "D:/.25fall/ai4coding/logo.png",
     "image_scale": 1.0,
     "shadow": false,
     "outline": true,
     "outline_color": "#000000",
     "outline_width": 2,
     "custom_position": [
-      3068,
-      945
+      0,
+      0
     ]
   }
 }
