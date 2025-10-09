@@ -373,28 +373,21 @@ class PhotoWatermarkApp:
         path_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 5))
         ttk.Button(path_frame, text="选择", command=self.select_watermark_image).pack(side=tk.RIGHT)
         
-        # 缩放比例
+        # 缩放比例（百分比）
         scale_frame = ttk.Frame(image_frame)
         scale_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(scale_frame, text="缩放比例:").pack(side=tk.LEFT)
-        self.image_scale = tk.DoubleVar(value=1.0)
+        ttk.Label(scale_frame, text="缩放比例(%):").pack(side=tk.LEFT)
+        self.image_scale_percent = tk.IntVar(value=100)  # 使用百分比，默认100%
         
-        # 缩放值显示
-        scale_value_label = ttk.Label(scale_frame, text="1.0x", width=6)
-        scale_value_label.pack(side=tk.RIGHT, padx=(5, 0))
+        scale_spinbox = ttk.Spinbox(scale_frame, from_=10, to=500, increment=5,
+                                    width=10, textvariable=self.image_scale_percent)
+        scale_spinbox.pack(side=tk.RIGHT)
+        scale_spinbox.bind('<KeyRelease>', self.on_image_scale_change)
+        scale_spinbox.bind('<ButtonRelease-1>', self.on_image_scale_change)
         
-        # 缩放滑块
-        scale_slider = ttk.Scale(scale_frame, from_=0.1, to=5.0, 
-                                variable=self.image_scale, orient=tk.HORIZONTAL,
-                                command=lambda v: self._update_image_scale_label(scale_value_label, v))
-        scale_slider.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 5))
-        
-        # 绑定change事件
-        scale_slider.configure(command=lambda v: (
-            self._update_image_scale_label(scale_value_label, v),
-            self.on_watermark_change(None)
-        ))
+        # 说明文本
+        ttk.Label(scale_frame, text="(10%-500%)", font=('', 8), foreground='gray').pack(side=tk.RIGHT, padx=(5, 5))
         
         # 添加说明标签
         ttk.Label(image_frame, text="💡 支持PNG透明图片", 
@@ -823,7 +816,15 @@ class PhotoWatermarkApp:
         self.rotation.set(config.get('rotation', 0))
         self.position.set(config.get('position', 'bottom_right'))
         self.image_path.set(config.get('image_path', ''))
-        self.image_scale.set(config.get('image_scale', 1.0))
+        
+        # 从配置加载缩放百分比，如果没有则从image_scale转换
+        if 'image_scale_percent' in config:
+            self.image_scale_percent.set(config.get('image_scale_percent', 100))
+        else:
+            # 兼容旧配置：从image_scale转换为百分比
+            scale_value = config.get('image_scale', 1.0)
+            self.image_scale_percent.set(int(scale_value * 100))
+        
         self.shadow_var.set(config.get('shadow', False))
         self.outline_var.set(config.get('outline', False))
         
@@ -841,6 +842,9 @@ class PhotoWatermarkApp:
     
     def get_current_config(self):
         """获取当前配置"""
+        # 将百分比转换为缩放比例（100% = 1.0）
+        image_scale = self.image_scale_percent.get() / 100.0
+        
         config = {
             'type': self.watermark_type.get(),
             'text': self.text_content.get(),
@@ -853,7 +857,8 @@ class PhotoWatermarkApp:
             'rotation': self.rotation.get(),
             'position': self.position.get(),
             'image_path': self.image_path.get(),
-            'image_scale': self.image_scale.get(),
+            'image_scale': image_scale,  # 使用转换后的缩放比例
+            'image_scale_percent': self.image_scale_percent.get(),  # 保存百分比用于UI显示
             'shadow': self.shadow_var.get(),
             'outline': self.outline_var.get(),
             'outline_color': '#000000',
@@ -1114,17 +1119,13 @@ class PhotoWatermarkApp:
         """水印类型改变"""
         self.on_watermark_change()
     
-    def _update_image_scale_label(self, label, value):
-        """更新图片缩放标签"""
-        try:
-            scale_val = float(value)
-            label.config(text=f"{scale_val:.1f}x")
-        except:
-            pass
-    
     def on_watermark_change(self, *args):
         """水印设置改变"""
         self.refresh_preview()
+    
+    def on_image_scale_change(self, *args):
+        """图片水印缩放改变"""
+        self.on_watermark_change()
     
     def on_position_change(self):
         """位置改变"""

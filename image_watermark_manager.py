@@ -304,9 +304,8 @@ class ImageWatermarkManager:
             if watermark is None:
                 return None
             
-            # 调整水印大小（限制为原图的50%）
-            max_size = min(image.shape[0], image.shape[1]) // 2
-            watermark = self.resize_watermark(watermark, scale, max_size, max_size)
+            # 调整水印大小（不限制最大尺寸，用户可以自由控制）
+            watermark = self.resize_watermark(watermark, scale, None, None)
             
             # 旋转水印
             if rotation != 0:
