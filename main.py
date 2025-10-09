@@ -21,7 +21,8 @@ except ImportError:
     print("安装方法: pip install tkinterdnd2")
 
 from image_processor import ImageProcessor
-from watermark_manager import WatermarkManager
+from text_watermark_manager import TextWatermarkManager
+from image_watermark_manager import ImageWatermarkManager
 from config_manager import ConfigManager
 
 
@@ -42,7 +43,8 @@ class PhotoWatermarkApp:
         
         # 初始化核心组件
         self.image_processor = ImageProcessor()
-        self.watermark_manager = WatermarkManager()
+        self.text_watermark_manager = TextWatermarkManager()
+        self.image_watermark_manager = ImageWatermarkManager()
         self.config_manager = ConfigManager()
         
         # 界面变量
@@ -158,7 +160,7 @@ class PhotoWatermarkApp:
         watermark_frame = ttk.LabelFrame(parent, text="水印设置", padding=10)
         self.paned_window.add(watermark_frame, weight=1)
         
-        # 创建Notebook（Tab页）
+        # 创建Notebook（Tab页）用于水印类型切换
         self.notebook = ttk.Notebook(watermark_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
         
@@ -170,6 +172,9 @@ class PhotoWatermarkApp:
         
         # 绑定Tab切换事件
         self.notebook.bind('<<NotebookTabChanged>>', self.on_tab_changed)
+        
+        # 在Notebook下方创建导出设置（所有水印类型共用）
+        self.create_export_settings(watermark_frame)
     
     def create_text_watermark_tab(self):
         """创建文本水印Tab页"""
@@ -200,9 +205,6 @@ class PhotoWatermarkApp:
         
         # 模板管理
         self.create_template_settings(scrollable_frame, "text")
-        
-        # 导出设置
-        self.create_export_settings(scrollable_frame)
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -240,8 +242,7 @@ class PhotoWatermarkApp:
         # 模板管理（图片水印独立）
         self.create_template_settings(scrollable_frame, "image")
         
-        # 导出设置（共用）
-        self.create_export_settings_for_image(scrollable_frame)
+        # 导出设置（共用，已在文本水印标签页创建，这里不再重复创建）
         
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
@@ -378,11 +379,22 @@ class PhotoWatermarkApp:
         
         ttk.Label(scale_frame, text="缩放比例:").pack(side=tk.LEFT)
         self.image_scale = tk.DoubleVar(value=1.0)
-        scale_spinbox = ttk.Spinbox(scale_frame, from_=0.1, to=5.0, increment=0.1,
-                                   width=10, textvariable=self.image_scale)
-        scale_spinbox.pack(side=tk.RIGHT)
-        scale_spinbox.bind('<KeyRelease>', self.on_watermark_change)
-        scale_spinbox.bind('<ButtonRelease-1>', self.on_watermark_change)
+        
+        # 缩放值显示
+        scale_value_label = ttk.Label(scale_frame, text="1.0x", width=6)
+        scale_value_label.pack(side=tk.RIGHT, padx=(5, 0))
+        
+        # 缩放滑块
+        scale_slider = ttk.Scale(scale_frame, from_=0.1, to=5.0, 
+                                variable=self.image_scale, orient=tk.HORIZONTAL,
+                                command=lambda v: self._update_image_scale_label(scale_value_label, v))
+        scale_slider.pack(side=tk.RIGHT, fill=tk.X, expand=True, padx=(10, 5))
+        
+        # 绑定change事件
+        scale_slider.configure(command=lambda v: (
+            self._update_image_scale_label(scale_value_label, v),
+            self.on_watermark_change(None)
+        ))
         
         # 添加说明标签
         ttk.Label(image_frame, text="💡 支持PNG透明图片", 
@@ -495,11 +507,6 @@ class PhotoWatermarkApp:
         # 添加提示标签
         ttk.Label(position_frame, text="💡 可在预览图上拖拽水印", 
                  font=('', 8), foreground='gray').grid(row=4, column=0, columnspan=3, pady=(5, 0), sticky=tk.W)
-    
-    def create_export_settings_for_image(self, parent):
-        """创建图片水印的导出设置"""
-        # 直接调用导出设置创建函数（共用同一组变量）
-        self.create_export_settings(parent)
     
     def create_template_settings(self, parent, watermark_type="text"):
         """创建模板设置"""
@@ -783,7 +790,7 @@ class PhotoWatermarkApp:
     
     def load_system_fonts(self):
         """加载系统字体"""
-        fonts = self.watermark_manager.get_available_fonts()
+        fonts = self.text_watermark_manager.get_available_fonts()
         
         # 临时解绑事件，避免在加载字体列表时触发刷新
         self.font_combo.unbind('<<ComboboxSelected>>')
@@ -996,20 +1003,81 @@ class PhotoWatermarkApp:
         """刷新预览"""
         current_image = self.image_processor.get_current_image()
         if current_image:
-            # 更新水印配置
+            # 获取水印配置
             config = self.get_current_config()
-            self.watermark_manager.update_config(config)
+            watermark_type = config.get('type', 'text')
             
-            # 生成预览图片，使用自定义位置
-            if self.custom_watermark_position and self.position.get() == 'custom':
-                preview = self.watermark_manager.preview_watermark_with_position(
-                    current_image, 
-                    self.custom_watermark_position
-                )
-            else:
-                preview = self.watermark_manager.preview_watermark(current_image)
+            # 根据水印类型生成预览
+            preview = None
+            if watermark_type == 'text':
+                # 使用文本水印管理器
+                if self.custom_watermark_position and self.position.get() == 'custom':
+                    preview = self.text_watermark_manager.preview_watermark_with_position(
+                        current_image,
+                        config['text'],
+                        config['font_family'],
+                        config['font_size'],
+                        config['font_color'],
+                        config['opacity'],
+                        config['rotation'],
+                        config['shadow'],
+                        config['outline'],
+                        config['outline_color'],
+                        config['outline_width'],
+                        config['font_bold'],
+                        config['font_italic'],
+                        self.custom_watermark_position
+                    )
+                else:
+                    preview = self.text_watermark_manager.preview_watermark(
+                        current_image,
+                        config['text'],
+                        config['font_family'],
+                        config['font_size'],
+                        config['font_color'],
+                        config['opacity'],
+                        config['position'],
+                        config['rotation'],
+                        config['shadow'],
+                        config['outline'],
+                        config['outline_color'],
+                        config['outline_width'],
+                        config['font_bold'],
+                        config['font_italic']
+                    )
+            elif watermark_type == 'image':
+                # 使用图片水印管理器
+                if config['image_path']:
+                    import cv2
+                    import numpy as np
+                    from PIL import Image
+                    
+                    if self.custom_watermark_position and self.position.get() == 'custom':
+                        result_cv = self.image_watermark_manager.preview_watermark_with_position(
+                            current_image,
+                            config['image_path'],
+                            config['image_scale'],
+                            config['opacity'],
+                            config['rotation'],
+                            self.custom_watermark_position
+                        )
+                    else:
+                        result_cv = self.image_watermark_manager.preview_watermark(
+                            current_image,
+                            config['image_path'],
+                            config['image_scale'],
+                            config['opacity'],
+                            config['position'],
+                            config['rotation']
+                        )
+                    
+                    if result_cv is not None:
+                        # 将OpenCV图片转换为PIL图片
+                        result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
+                        preview = Image.fromarray(result_cv)
             
-            self.display_preview(preview)
+            if preview:
+                self.display_preview(preview)
     
     def display_preview(self, image):
         """显示预览图片"""
@@ -1045,6 +1113,14 @@ class PhotoWatermarkApp:
     def on_watermark_type_change(self):
         """水印类型改变"""
         self.on_watermark_change()
+    
+    def _update_image_scale_label(self, label, value):
+        """更新图片缩放标签"""
+        try:
+            scale_val = float(value)
+            label.config(text=f"{scale_val:.1f}x")
+        except:
+            pass
     
     def on_watermark_change(self, *args):
         """水印设置改变"""
@@ -1397,9 +1473,9 @@ class PhotoWatermarkApp:
         # 在新线程中执行导出
         def export_thread():
             try:
-                # 更新水印配置
+                # 获取水印配置
                 config = self.get_current_config()
-                self.watermark_manager.update_config(config)
+                watermark_type = config.get('type', 'text')
                 
                 # 批量应用水印并导出
                 results = {
@@ -1410,14 +1486,78 @@ class PhotoWatermarkApp:
                 
                 for i, image_info in enumerate(images):
                     try:
-                        # 应用水印（使用自定义位置）
-                        if self.custom_watermark_position and self.position.get() == 'custom':
-                            watermarked = self.watermark_manager.preview_watermark_with_position(
-                                image_info['image'], 
-                                self.custom_watermark_position
-                            )
-                        else:
-                            watermarked = self.watermark_manager.preview_watermark(image_info['image'])
+                        # 应用水印（根据类型选择不同的管理器）
+                        watermarked = None
+                        
+                        if watermark_type == 'text':
+                            # 使用文本水印管理器
+                            if self.custom_watermark_position and self.position.get() == 'custom':
+                                watermarked = self.text_watermark_manager.preview_watermark_with_position(
+                                    image_info['image'],
+                                    config['text'],
+                                    config['font_family'],
+                                    config['font_size'],
+                                    config['font_color'],
+                                    config['opacity'],
+                                    config['rotation'],
+                                    config['shadow'],
+                                    config['outline'],
+                                    config['outline_color'],
+                                    config['outline_width'],
+                                    config['font_bold'],
+                                    config['font_italic'],
+                                    self.custom_watermark_position
+                                )
+                            else:
+                                watermarked = self.text_watermark_manager.preview_watermark(
+                                    image_info['image'],
+                                    config['text'],
+                                    config['font_family'],
+                                    config['font_size'],
+                                    config['font_color'],
+                                    config['opacity'],
+                                    config['position'],
+                                    config['rotation'],
+                                    config['shadow'],
+                                    config['outline'],
+                                    config['outline_color'],
+                                    config['outline_width'],
+                                    config['font_bold'],
+                                    config['font_italic']
+                                )
+                        elif watermark_type == 'image' and config['image_path']:
+                            # 使用图片水印管理器
+                            import cv2
+                            import numpy as np
+                            from PIL import Image
+                            
+                            if self.custom_watermark_position and self.position.get() == 'custom':
+                                result_cv = self.image_watermark_manager.apply_watermark(
+                                    image_info['image'],
+                                    config['image_path'],
+                                    config['image_scale'],
+                                    config['opacity'],
+                                    config['position'],
+                                    config['rotation'],
+                                    self.custom_watermark_position
+                                )
+                            else:
+                                result_cv = self.image_watermark_manager.apply_watermark(
+                                    image_info['image'],
+                                    config['image_path'],
+                                    config['image_scale'],
+                                    config['opacity'],
+                                    config['position'],
+                                    config['rotation']
+                                )
+                            
+                            if result_cv is not None:
+                                # 将OpenCV图片转换为PIL图片
+                                result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
+                                watermarked = Image.fromarray(result_cv)
+                        
+                        if watermarked is None:
+                            watermarked = Image.open(image_info['image'])
                         
                         # 调整图片尺寸
                         if self.resize_enabled.get():
@@ -1524,18 +1664,82 @@ class PhotoWatermarkApp:
                     return
         
         try:
-            # 更新水印配置
+            # 获取水印配置
             config = self.get_current_config()
-            self.watermark_manager.update_config(config)
+            watermark_type = config.get('type', 'text')
             
-            # 应用水印（使用自定义位置）
-            if self.custom_watermark_position and self.position.get() == 'custom':
-                watermarked = self.watermark_manager.preview_watermark_with_position(
-                    current_image, 
-                    self.custom_watermark_position
-                )
-            else:
-                watermarked = self.watermark_manager.preview_watermark(current_image)
+            # 应用水印（根据类型选择不同的管理器）
+            watermarked = None
+            
+            if watermark_type == 'text':
+                # 使用文本水印管理器
+                if self.custom_watermark_position and self.position.get() == 'custom':
+                    watermarked = self.text_watermark_manager.preview_watermark_with_position(
+                        current_image,
+                        config['text'],
+                        config['font_family'],
+                        config['font_size'],
+                        config['font_color'],
+                        config['opacity'],
+                        config['rotation'],
+                        config['shadow'],
+                        config['outline'],
+                        config['outline_color'],
+                        config['outline_width'],
+                        config['font_bold'],
+                        config['font_italic'],
+                        self.custom_watermark_position
+                    )
+                else:
+                    watermarked = self.text_watermark_manager.preview_watermark(
+                        current_image,
+                        config['text'],
+                        config['font_family'],
+                        config['font_size'],
+                        config['font_color'],
+                        config['opacity'],
+                        config['position'],
+                        config['rotation'],
+                        config['shadow'],
+                        config['outline'],
+                        config['outline_color'],
+                        config['outline_width'],
+                        config['font_bold'],
+                        config['font_italic']
+                    )
+            elif watermark_type == 'image' and config['image_path']:
+                # 使用图片水印管理器
+                import cv2
+                import numpy as np
+                from PIL import Image
+                
+                if self.custom_watermark_position and self.position.get() == 'custom':
+                    result_cv = self.image_watermark_manager.apply_watermark(
+                        current_image,
+                        config['image_path'],
+                        config['image_scale'],
+                        config['opacity'],
+                        config['position'],
+                        config['rotation'],
+                        self.custom_watermark_position
+                    )
+                else:
+                    result_cv = self.image_watermark_manager.apply_watermark(
+                        current_image,
+                        config['image_path'],
+                        config['image_scale'],
+                        config['opacity'],
+                        config['position'],
+                        config['rotation']
+                    )
+                
+                if result_cv is not None:
+                    # 将OpenCV图片转换为PIL图片
+                    result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
+                    watermarked = Image.fromarray(result_cv)
+            
+            if watermarked is None:
+                watermarked = Image.open(current_image)
             
             # 调整图片尺寸
             if self.resize_enabled.get():

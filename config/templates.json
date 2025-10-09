@@ -104,7 +104,7 @@
     ],
     "_watermark_type": "text"
   },
-  "图片_画不出来模板": {
+  "图片_图片水印模板": {
     "type": "image",
     "text": "watermark",
     "font_family": "Times New Roman",
@@ -112,9 +112,9 @@
     "font_bold": false,
     "font_italic": false,
     "font_color": "#ffffff",
-    "opacity": 100,
-    "rotation": 28,
-    "position": "top_left",
+    "opacity": 68,
+    "rotation": 1,
+    "position": "center",
     "image_path": "D:/.25fall/ai4coding/logo.png",
     "image_scale": 1.0,
     "shadow": false,

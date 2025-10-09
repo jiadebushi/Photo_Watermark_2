@@ -10,18 +10,14 @@
     "font_bold": false,
     "font_italic": false,
     "font_color": "#ffffff",
-    "opacity": 38,
-    "rotation": 28,
-    "position": "custom",
+    "opacity": 68,
+    "rotation": 1,
+    "position": "center",
     "image_path": "D:/.25fall/ai4coding/logo.png",
     "image_scale": 1.0,
     "shadow": false,
     "outline": true,
     "outline_color": "#000000",
-    "outline_width": 2,
-    "custom_position": [
-      0,
-      0
-    ]
+    "outline_width": 2
   }
 }
