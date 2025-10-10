@@ -1077,8 +1077,13 @@ class PhotoWatermarkApp:
                         )
                     
                     if result_cv is not None:
-                        # 将OpenCV图片转换为PIL图片
-                        result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
+                        # 将OpenCV图片转换为PIL图片，保持透明通道
+                        if len(result_cv.shape) == 3 and result_cv.shape[2] == 4:
+                            # 4通道BGRA -> RGBA
+                            result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGRA2RGBA)
+                        else:
+                            # 3通道BGR -> RGB
+                            result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
                         preview = Image.fromarray(result_cv)
             
             if preview:
@@ -1507,7 +1512,9 @@ class PhotoWatermarkApp:
                                     config['outline_width'],
                                     config['font_bold'],
                                     config['font_italic'],
-                                    self.custom_watermark_position
+                                    self.custom_watermark_position,
+                                    max_preview_size=(10000, 10000),  # 不限制尺寸
+                                    for_display=False  # 保持透明通道用于保存
                                 )
                             else:
                                 watermarked = self.text_watermark_manager.preview_watermark(
@@ -1524,7 +1531,9 @@ class PhotoWatermarkApp:
                                     config['outline_color'],
                                     config['outline_width'],
                                     config['font_bold'],
-                                    config['font_italic']
+                                    config['font_italic'],
+                                    max_preview_size=(10000, 10000),  # 不限制尺寸
+                                    for_display=False  # 保持透明通道用于保存
                                 )
                         elif watermark_type == 'image' and config['image_path']:
                             # 使用图片水印管理器
@@ -1553,8 +1562,13 @@ class PhotoWatermarkApp:
                                 )
                             
                             if result_cv is not None:
-                                # 将OpenCV图片转换为PIL图片
-                                result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
+                                # 将OpenCV图片转换为PIL图片，保持透明通道
+                                if len(result_cv.shape) == 3 and result_cv.shape[2] == 4:
+                                    # 4通道BGRA -> RGBA
+                                    result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGRA2RGBA)
+                                else:
+                                    # 3通道BGR -> RGB
+                                    result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
                                 watermarked = Image.fromarray(result_cv)
                         
                         if watermarked is None:
@@ -1689,7 +1703,9 @@ class PhotoWatermarkApp:
                         config['outline_width'],
                         config['font_bold'],
                         config['font_italic'],
-                        self.custom_watermark_position
+                        self.custom_watermark_position,
+                        max_preview_size=(10000, 10000),  # 不限制尺寸
+                        for_display=False  # 保持透明通道用于保存
                     )
                 else:
                     watermarked = self.text_watermark_manager.preview_watermark(
@@ -1706,7 +1722,9 @@ class PhotoWatermarkApp:
                         config['outline_color'],
                         config['outline_width'],
                         config['font_bold'],
-                        config['font_italic']
+                        config['font_italic'],
+                        max_preview_size=(10000, 10000),  # 不限制尺寸
+                        for_display=False  # 保持透明通道用于保存
                     )
             elif watermark_type == 'image' and config['image_path']:
                 # 使用图片水印管理器
@@ -1735,8 +1753,13 @@ class PhotoWatermarkApp:
                     )
                 
                 if result_cv is not None:
-                    # 将OpenCV图片转换为PIL图片
-                    result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
+                    # 将OpenCV图片转换为PIL图片，保持透明通道
+                    if len(result_cv.shape) == 3 and result_cv.shape[2] == 4:
+                        # 4通道BGRA -> RGBA
+                        result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGRA2RGBA)
+                    else:
+                        # 3通道BGR -> RGB
+                        result_cv = cv2.cvtColor(result_cv, cv2.COLOR_BGR2RGB)
                     watermarked = Image.fromarray(result_cv)
             
             if watermarked is None:

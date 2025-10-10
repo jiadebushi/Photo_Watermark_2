@@ -233,22 +233,42 @@ class ImageProcessor:
             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
             
             # 根据格式调整图片模式
-            if format == 'JPEG' and image.mode in ('RGBA', 'LA'):
-                # JPEG不支持透明通道，转换为RGB
-                background = Image.new('RGB', image.size, (255, 255, 255))
-                if image.mode == 'RGBA':
-                    background.paste(image, mask=image.split()[-1])
-                else:
-                    background.paste(image)
-                image = background
-            elif format == 'PNG' and image.mode == 'RGB':
-                # PNG支持透明通道，保持原样
-                pass
+            if format == 'JPEG':
+                # JPEG不支持透明通道
+                if image.mode in ('RGBA', 'LA', 'P'):
+                    # 创建白色背景
+                    background = Image.new('RGB', image.size, (255, 255, 255))
+                    # 如果有透明通道，使用alpha混合
+                    if image.mode == 'RGBA':
+                        background.paste(image, mask=image.split()[-1])
+                    elif image.mode == 'LA':
+                        background.paste(image, mask=image.split()[-1])
+                    elif image.mode == 'P' and 'transparency' in image.info:
+                        # 处理调色板模式的透明
+                        image = image.convert('RGBA')
+                        background.paste(image, mask=image.split()[-1])
+                    else:
+                        background.paste(image)
+                    image = background
+                elif image.mode != 'RGB':
+                    # 其他模式转换为RGB
+                    image = image.convert('RGB')
+            elif format == 'PNG':
+                # PNG支持透明通道，保持RGBA模式以保留透明度
+                if image.mode in ('RGB', 'L'):
+                    # RGB和灰度图片保持原样
+                    pass
+                elif image.mode not in ('RGBA', 'LA', 'P'):
+                    # 其他模式转换为RGBA以支持透明
+                    image = image.convert('RGBA')
             
             # 保存图片
             save_kwargs = {}
             if format == 'JPEG':
                 save_kwargs['quality'] = quality
+                save_kwargs['optimize'] = True
+            elif format == 'PNG':
+                # PNG优化选项
                 save_kwargs['optimize'] = True
             
             image.save(output_path, format=format, **save_kwargs)

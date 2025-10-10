@@ -212,7 +212,7 @@ class ImageWatermarkManager:
         将水印叠加到图片上
         
         Args:
-            image: 原始图片（BGR格式）
+            image: 原始图片（BGR或BGRA格式）
             watermark: 水印图片（BGRA格式）
             position: 水印位置 (x, y)
             
@@ -223,6 +223,7 @@ class ImageWatermarkManager:
             x, y = position
             wm_h, wm_w = watermark.shape[:2]
             img_h, img_w = image.shape[:2]
+            has_alpha = len(image.shape) == 3 and image.shape[2] == 4
             
             # 确保水印在图片范围内
             if x < 0 or y < 0 or x + wm_w > img_w or y + wm_h > img_h:
@@ -236,23 +237,34 @@ class ImageWatermarkManager:
             # 创建图片副本
             result = image.copy()
             
-            # 提取水印的RGB和Alpha通道
-            if watermark.shape[2] == 4:
+            # 提取水印的BGR和Alpha通道
+            if len(watermark.shape) == 3 and watermark.shape[2] == 4:
                 watermark_bgr = watermark[:, :, :3]
                 watermark_alpha = watermark[:, :, 3] / 255.0
             else:
-                watermark_bgr = watermark
+                watermark_bgr = watermark[:, :, :3] if len(watermark.shape) == 3 else watermark
                 watermark_alpha = np.ones((wm_h, wm_w), dtype=np.float32)
             
             # 获取要覆盖的图片区域
-            roi = result[y:y+wm_h, x:x+wm_w]
+            if has_alpha:
+                # 原图有alpha通道，分别处理BGR和A
+                roi = result[y:y+wm_h, x:x+wm_w, :3]
+                roi_alpha = result[y:y+wm_h, x:x+wm_w, 3]
+            else:
+                roi = result[y:y+wm_h, x:x+wm_w]
             
-            # 使用Alpha混合
+            # 使用Alpha混合BGR通道
             for c in range(3):
                 roi[:, :, c] = (watermark_alpha * watermark_bgr[:, :, c] + 
                                (1 - watermark_alpha) * roi[:, :, c])
             
-            result[y:y+wm_h, x:x+wm_w] = roi
+            # 更新结果
+            if has_alpha:
+                result[y:y+wm_h, x:x+wm_w, :3] = roi
+                # Alpha通道：如果水印有透明度，保持原图alpha或者合成
+                # 这里保持原图的alpha通道不变
+            else:
+                result[y:y+wm_h, x:x+wm_w] = roi
             
             return result
             
@@ -282,19 +294,32 @@ class ImageWatermarkManager:
         try:
             # 加载原始图片
             if isinstance(image_input, str):
-                # 如果是文件路径
-                image = cv2.imread(image_input)
+                # 如果是文件路径，使用UNCHANGED标志保留透明通道
+                image = cv2.imread(image_input, cv2.IMREAD_UNCHANGED)
                 if image is None:
                     print(f"无法加载原始图片: {image_input}")
                     return None
+                # 确保至少是3通道
+                if len(image.shape) == 2:
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
             else:
                 # 如果是PIL Image对象，转换为OpenCV格式
                 from PIL import Image
                 if isinstance(image_input, Image.Image):
-                    # PIL Image转numpy array
-                    image_rgb = np.array(image_input.convert('RGB'))
-                    # RGB转BGR (OpenCV格式)
-                    image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+                    # 保留透明通道
+                    if image_input.mode == 'RGBA':
+                        # RGBA -> BGRA (OpenCV格式)
+                        image_rgba = np.array(image_input)
+                        image = cv2.cvtColor(image_rgba, cv2.COLOR_RGBA2BGRA)
+                    elif image_input.mode == 'RGB':
+                        # RGB -> BGR (OpenCV格式)
+                        image_rgb = np.array(image_input)
+                        image = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+                    else:
+                        # 其他模式先转换为RGBA保持透明通道
+                        image_input = image_input.convert('RGBA')
+                        image_rgba = np.array(image_input)
+                        image = cv2.cvtColor(image_rgba, cv2.COLOR_RGBA2BGRA)
                 else:
                     print(f"不支持的图片输入类型: {type(image_input)}")
                     return None

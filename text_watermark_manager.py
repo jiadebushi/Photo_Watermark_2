@@ -380,7 +380,8 @@ class TextWatermarkManager:
                          shadow: bool = False, outline: bool = False,
                          outline_color: str = '#000000', outline_width: int = 2,
                          bold: bool = False, italic: bool = False,
-                         max_preview_size: Tuple[int, int] = (800, 600)) -> Optional[Image.Image]:
+                         max_preview_size: Tuple[int, int] = (800, 600),
+                         for_display: bool = True) -> Optional[Image.Image]:
         """
         生成水印预览图
         
@@ -400,6 +401,7 @@ class TextWatermarkManager:
             bold: 是否粗体
             italic: 是否斜体
             max_preview_size: 预览图最大尺寸
+            for_display: 是否用于显示（True则转RGB，False保持RGBA用于保存）
             
         Returns:
             PIL.Image: 预览图，失败返回None
@@ -425,8 +427,13 @@ class TextWatermarkManager:
             result = self.apply_watermark(image, watermark, position)
             
             # 调整预览图大小
-            if result.mode == 'RGBA':
-                result = result.convert('RGB')
+            # 只有在用于显示时才转换为RGB（用于Tkinter显示）
+            # 用于保存时保持RGBA以保留透明通道
+            if for_display and result.mode == 'RGBA':
+                # 为显示转换：使用白色背景
+                background = Image.new('RGB', result.size, (255, 255, 255))
+                background.paste(result, mask=result.split()[-1])
+                result = background
             
             w, h = result.size
             max_w, max_h = max_preview_size
@@ -452,7 +459,8 @@ class TextWatermarkManager:
                                        outline_width: int = 2,
                                        bold: bool = False, italic: bool = False,
                                        custom_position: Optional[Tuple[int, int]] = None,
-                                       max_preview_size: Tuple[int, int] = (800, 600)) -> Optional[Image.Image]:
+                                       max_preview_size: Tuple[int, int] = (800, 600),
+                                       for_display: bool = True) -> Optional[Image.Image]:
         """
         使用自定义位置生成水印预览图
         
@@ -472,6 +480,7 @@ class TextWatermarkManager:
             italic: 是否斜体
             custom_position: 自定义位置 (x, y)
             max_preview_size: 预览图最大尺寸
+            for_display: 是否用于显示（True则转RGB，False保持RGBA用于保存）
             
         Returns:
             PIL.Image: 预览图，失败返回None
@@ -497,8 +506,13 @@ class TextWatermarkManager:
             result = self.apply_watermark(image, watermark, 'custom', custom_position)
             
             # 调整预览图大小
-            if result.mode == 'RGBA':
-                result = result.convert('RGB')
+            # 只有在用于显示时才转换为RGB（用于Tkinter显示）
+            # 用于保存时保持RGBA以保留透明通道
+            if for_display and result.mode == 'RGBA':
+                # 为显示转换：使用白色背景
+                background = Image.new('RGB', result.size, (255, 255, 255))
+                background.paste(result, mask=result.split()[-1])
+                result = background
             
             w, h = result.size
             max_w, max_h = max_preview_size
