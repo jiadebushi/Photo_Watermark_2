@@ -3,7 +3,7 @@
   "last_output_folder": "D:/.25fall/ai4coding",
   "last_input_folder": "",
   "default_watermark": {
-    "type": "text",
+    "type": "image",
     "text": "watermark",
     "font_family": "Times New Roman",
     "font_size": 90,
@@ -12,17 +12,13 @@
     "font_color": "#ffffff",
     "opacity": 38,
     "rotation": 28,
-    "position": "custom",
+    "position": "top_left",
     "image_path": "D:/.25fall/ai4coding/logo.png",
     "image_scale": 1.0,
     "image_scale_percent": 100,
     "shadow": false,
     "outline": true,
     "outline_color": "#000000",
-    "outline_width": 2,
-    "custom_position": [
-      109,
-      24
-    ]
+    "outline_width": 2
   }
 }

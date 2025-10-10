@@ -716,7 +716,7 @@ class PhotoWatermarkApp:
             self.preview_canvas.drop_target_register(DND_FILES)
             self.preview_canvas.dnd_bind('<<Drop>>', self.on_drop)
             
-            print("✓ 拖拽功能已启用")
+            print("拖拽功能已启用")
             self.status_label.config(text="就绪 - 支持拖拽导入")
         except Exception as e:
             print(f"拖拽功能设置失败: {e}")

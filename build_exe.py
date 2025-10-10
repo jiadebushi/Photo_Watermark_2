@@ -154,7 +154,8 @@ def main():
     print("=" * 50)
     
     # 检查必要文件是否存在
-    required_files = ["main.py", "image_processor.py", "watermark_manager.py", "config_manager.py"]
+    required_files = ["main.py", "image_processor.py", "text_watermark_manager.py", 
+                      "image_watermark_manager.py", "config_manager.py"]
     missing_files = []
     
     for file in required_files:

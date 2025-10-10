@@ -19,10 +19,17 @@ def test_imports():
         return False
     
     try:
-        from watermark_manager import WatermarkManager
-        print("✓ WatermarkManager 导入成功")
+        from text_watermark_manager import TextWatermarkManager
+        print("✓ TextWatermarkManager 导入成功")
     except Exception as e:
-        print(f"✗ WatermarkManager 导入失败: {e}")
+        print(f"✗ TextWatermarkManager 导入失败: {e}")
+        return False
+    
+    try:
+        from image_watermark_manager import ImageWatermarkManager
+        print("✓ ImageWatermarkManager 导入成功")
+    except Exception as e:
+        print(f"✗ ImageWatermarkManager 导入失败: {e}")
         return False
     
     try:
@@ -67,18 +74,20 @@ def test_image_processor():
         return False
 
 def test_watermark_manager():
-    """测试水印管理器"""
+    """测试水印管理器（文本和图片）"""
     print("\n测试水印管理器...")
     
     try:
-        from watermark_manager import WatermarkManager
-        manager = WatermarkManager()
-        
-        # 测试文本水印创建
+        from text_watermark_manager import TextWatermarkManager
+        from image_watermark_manager import ImageWatermarkManager
         from PIL import Image
+        
+        # 测试文本水印管理器
+        print("  - 测试文本水印管理器...")
+        text_manager = TextWatermarkManager()
         test_image = Image.new('RGB', (400, 300), color='white')
         
-        watermark = manager.create_text_watermark(
+        watermark = text_manager.create_text_watermark(
             text="Test Watermark",
             font_family="Arial",
             font_size=24,
@@ -87,27 +96,44 @@ def test_watermark_manager():
         )
         
         if watermark:
-            print("✓ 文本水印创建成功")
+            print("    ✓ 文本水印创建成功")
         else:
-            print("✗ 文本水印创建失败")
+            print("    ✗ 文本水印创建失败")
             return False
         
         # 测试水印应用
-        result = manager.apply_watermark(test_image, watermark, "bottom_right")
+        result = text_manager.apply_watermark(test_image, watermark, "bottom_right")
         if result:
-            print("✓ 水印应用成功")
+            print("    ✓ 文本水印应用成功")
         else:
-            print("✗ 水印应用失败")
+            print("    ✗ 文本水印应用失败")
             return False
         
         # 测试字体列表
-        fonts = manager.get_available_fonts()
-        print(f"✓ 可用字体数量: {len(fonts)}")
+        fonts = text_manager.get_available_fonts()
+        print(f"    ✓ 可用字体数量: {len(fonts)}")
         
+        # 测试图片水印管理器
+        print("  - 测试图片水印管理器...")
+        image_manager = ImageWatermarkManager()
+        
+        # 测试位置计算
+        img_shape = (300, 400)  # height, width
+        wm_shape = (50, 100)    # height, width
+        position = image_manager.calculate_position(img_shape, wm_shape, "bottom_right")
+        if position:
+            print(f"    ✓ 位置计算成功: {position}")
+        else:
+            print("    ✗ 位置计算失败")
+            return False
+        
+        print("✓ 水印管理器测试通过")
         return True
         
     except Exception as e:
-        print(f"✗ WatermarkManager 测试失败: {e}")
+        print(f"✗ 水印管理器测试失败: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 def test_config_manager():
